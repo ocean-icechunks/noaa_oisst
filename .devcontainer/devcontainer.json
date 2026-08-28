@@ -1,0 +1,93 @@
+{
+  "name": "ohw26_oisst_icechunk",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm",
+
+  "features": {
+    // mise provides pixi, uv and prek (see mise.toml). There is no published
+    // prefix-dev pixi feature, so pixi is installed through mise instead.
+    "ghcr.io/devcontainers-extra/features/mise:1": { "version": "latest" },
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {},
+    "ghcr.io/devcontainers/features/aws-cli:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  "containerEnv": {
+    // Package cache lives on a mounted volume, where hardlinking across filesystems fails.
+    "PIXI_CACHE_DIR": "/home/vscode/.cache/rattler",
+    "UV_LINK_MODE": "copy",
+    // Keeps Claude Code's auth in the mounted volume: the OAuth account lives in
+    // ~/.claude.json, outside ~/.claude, and is otherwise lost on every rebuild.
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
+    // Local-filesystem Icechunk store (PLAN.md Stage 1). Inside the workspace and
+    // git-ignored, so the same store can be used from the host outside the container.
+    "OISST_LOCAL_STORE": "${containerWorkspaceFolder}/local-store/oisst"
+  },
+
+  "remoteEnv": {
+    // mise shims, so pixi/uv/prek resolve in non-interactive shells and tasks too.
+    // ${containerEnv:...} only resolves in remoteEnv; in containerEnv it is passed
+    // through literally and destroys PATH.
+    "PATH": "/home/vscode/.local/share/mise/shims:${containerEnv:PATH}",
+    // Host credentials, when they exist; absent vars stay unset.
+    "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
+    // "AWS_PROFILE": "${localEnv:AWS_PROFILE}"
+  },
+
+  "mounts": [
+    // pixi requires .pixi on a case-sensitive filesystem, which a macOS bind mount
+    // is not; a volume also keeps solved environments out of the host checkout.
+    "source=${localWorkspaceFolderBasename}-pixi-envs,target=${containerWorkspaceFolder}/.pixi,type=volume",
+    "source=${localWorkspaceFolderBasename}-pixi-cache,target=/home/vscode/.cache/rattler,type=volume",
+
+    // Claude Code: auth and session history persist in a volume across rebuilds,
+    // while global skills (icechunk-datacube-ingestion, gitbutler, ...) come from
+    // the host read-only. Drop these two lines on Codespaces, where there is no
+    // host ~/.claude to bind.
+    "source=${localWorkspaceFolderBasename}-claude-home,target=/home/vscode/.claude,type=volume",
+    "source=${localEnv:HOME}/.claude/skills,target=/home/vscode/.claude/skills,type=bind,readonly"
+
+    // Publishing (PLAN.md Stage 3) needs real credentials: run `aws sso login`
+    // inside the container. Anthropic's dev container guidance is explicit about
+    // not bind-mounting host secrets such as ~/.aws or ~/.ssh, so that is left out.
+  ],
+
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+
+  // Codespaces sizing: NOAA rollups pull ~28 GB and the local store is ~18 GB.
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "16gb",
+    "storage": "64gb"
+  },
+
+  "customizations": {
+    "vscode": {
+      // The Claude Code feature adds its own VS Code extension.
+      "extensions": [
+        "ms-python.python",
+        "charliermarsh.ruff",
+        "ms-python.mypy-type-checker",
+        "tamasfe.even-better-toml",
+        "marimo-team.vscode-marimo",
+        "ms-toolsai.jupyter",
+        "redhat.vscode-yaml"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "${workspaceFolder}/.pixi/envs/dev/bin/python",
+        "python.testing.pytestEnabled": true,
+        "python.testing.unittestEnabled": false,
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": {
+            "source.organizeImports.ruff": "explicit"
+          }
+        },
+        "files.trimTrailingWhitespace": true,
+        "files.insertFinalNewline": true
+      }
+    }
+  },
+
+  "remoteUser": "vscode"
+}
