@@ -1,0 +1,263 @@
+"""The ``oisst`` command-line interface (Typer).
+
+Every command is *read the store's state → diff against what should be there →
+do the missing work*. The store is the checkpoint — no cursor file, no external
+state, no ``--resume``: kill any command and re-run it.
+
+The storage target comes from global options with env-variable fallbacks
+(``--store-path`` / ``OISST_STORE_PATH``, ``--s3-bucket`` / ``OISST_S3_BUCKET``,
+...), so the same commands run locally with flags and in Actions with env vars.
+"""
+
+from __future__ import annotations
+
+import logging
+import warnings
+from datetime import UTC, date, datetime
+from pathlib import Path  # noqa: TC003 - typer needs it at runtime
+from typing import Annotated
+
+import icechunk
+import typer
+import xarray as xr
+
+from ohw26_oisst_icechunk import config, daily, maintenance, rollup, sources, store
+
+logger = logging.getLogger(__name__)
+
+app = typer.Typer(
+    name="oisst",
+    help="Maintain the NOAA OISST v2.1 Icechunk store.",
+    no_args_is_help=True,
+)
+
+
+@app.callback()
+def main_options(
+    ctx: typer.Context,
+    store_path: Annotated[
+        Path | None,
+        typer.Option(envvar="OISST_STORE_PATH", help="Local Icechunk store directory."),
+    ] = None,
+    s3_bucket: Annotated[
+        str | None,
+        typer.Option(envvar="OISST_S3_BUCKET", help="Destination S3 bucket."),
+    ] = None,
+    s3_prefix: Annotated[
+        str,
+        typer.Option(envvar="OISST_S3_PREFIX", help="Key prefix inside the bucket."),
+    ] = "oisst",
+    s3_region: Annotated[
+        str,
+        typer.Option(envvar="OISST_S3_REGION", help="Destination bucket region."),
+    ] = "us-east-1",
+    s3_endpoint: Annotated[
+        str | None,
+        typer.Option(
+            envvar="OISST_S3_ENDPOINT",
+            help="Custom S3 endpoint (e.g. https://data.source.coop).",
+        ),
+    ] = None,
+    s3_acl: Annotated[
+        str,
+        typer.Option(
+            envvar="OISST_S3_ACL",
+            help="Canned ACL on every object written (Source.coop cross-account "
+            "uploads need bucket-owner-full-control); pass an empty string to "
+            "send none.",
+        ),
+    ] = "bucket-owner-full-control",
+    arraylake_repo: Annotated[
+        str | None,
+        typer.Option(
+            envvar="OISST_ARRAYLAKE_REPO",
+            help="Arraylake org/repo (awaits the Stage 2 destination decision).",
+        ),
+    ] = None,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Resolve the storage target shared by every subcommand."""
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.INFO,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    )
+    icechunk.set_logs_filter("info" if verbose else "error")
+    warnings.filterwarnings(
+        "ignore",
+        message="Numcodecs codecs are not in the Zarr version 3 specification",
+        category=UserWarning,
+    )
+    warnings.filterwarnings(
+        "ignore",
+        category=xr.coding.variables.SerializationWarning,
+    )
+    try:
+        ctx.obj = store.StoreTarget(
+            local_path=store_path,
+            s3_bucket=s3_bucket,
+            s3_prefix=s3_prefix,
+            s3_region=s3_region,
+            s3_endpoint=s3_endpoint,
+            s3_acl=s3_acl or None,
+            arraylake_repo=arraylake_repo,
+        )
+    except ValueError as err:
+        raise typer.BadParameter(str(err)) from err
+
+
+def _echo_work(work: daily.DailyWork) -> None:
+    """Report a planned diff to the terminal."""
+    typer.echo(f"To append: {len(work.append)}  to swap prelim→final: {len(work.swap)}")
+    for d in work.skipped_gaps:
+        typer.echo(
+            f"WARNING: skipping {d:%Y-%m-%d} - older than the store's tail (gap)"
+        )
+
+
+def _run_daily_work(
+    target: store.StoreTarget,
+    months: list[str],
+    commit_batch_months: bool,
+) -> None:
+    """Shared daily-ingest body: list NOAA months, diff, append + swap."""
+    fs = sources.anon_s3()
+    finals = set(sources.dates_available(fs, preliminary=False, months=months))
+    prelims = set(sources.dates_available(fs, preliminary=True, months=months))
+
+    repo = store.open_or_create_repo(target)
+    session = repo.readonly_session("main")
+    state = daily.store_days_state(session)
+    work = daily.plan_daily_work(state, finals, prelims)
+    _echo_work(work)
+    if not work:
+        typer.echo("Nothing to do.")
+        return
+
+    if commit_batch_months:
+        by_month: dict[str, list[tuple[date, bool]]] = {}
+        for d, flag in work.append:
+            by_month.setdefault(f"{d:%Y%m}", []).append((d, flag))
+        for month_key in sorted(by_month):
+            daily.append_batch(repo, by_month[month_key])
+    else:
+        daily.append_batch(repo, work.append)
+
+    daily.swap_to_final(repo, work.swap)
+
+
+@app.command()
+def backfill_daily(
+    ctx: typer.Context,
+    start: Annotated[str, typer.Option(help="First day, YYYY-MM-DD.")] = "1981-09-01",
+    end: Annotated[
+        str | None, typer.Option(help="Last day, YYYY-MM-DD (default: today).")
+    ] = None,
+) -> None:
+    """Backfill the daily/ group over a date range, committing per month."""
+    start_date = date.fromisoformat(start)
+    end_date = date.fromisoformat(end) if end else datetime.now(tz=UTC).date()
+    months = sources.months_between(start_date, end_date)
+    typer.echo(f"Backfilling {months[0]}..{months[-1]} ({len(months)} months)")
+    _run_daily_work(ctx.obj, months, commit_batch_months=True)
+
+
+@app.command()
+def ingest_recent(
+    ctx: typer.Context,
+    scan_months: Annotated[
+        int, typer.Option(help="How many trailing months of NOAA listings to scan.")
+    ] = 2,
+) -> None:
+    """Append new days and swap preliminary→final over the trailing months."""
+    months = sources.recent_months(datetime.now(tz=UTC), count=scan_months)
+    _run_daily_work(ctx.obj, months, commit_batch_months=False)
+
+
+@app.command()
+def rollup_monthly(
+    ctx: typer.Context,
+    month: Annotated[
+        str | None,
+        typer.Option(
+            help="Roll up one specific month (YYYY-MM) instead of catching up."
+        ),
+    ] = None,
+    fetch_concurrency: Annotated[
+        int,
+        typer.Option(
+            envvar="OISST_FETCH_CONCURRENCY",
+            help="Concurrent virtual-chunk fetches while loading a month "
+            "(lower this on constrained networks).",
+        ),
+    ] = rollup.VIRTUAL_FETCH_CONCURRENCY,
+) -> None:
+    """Compute monthly statistics for every complete, all-final month."""
+    repo = store.open_or_create_repo(ctx.obj)
+    session = repo.readonly_session("main")
+
+    if month is not None:
+        months = [date.fromisoformat(f"{month}-01")]
+    else:
+        state = daily.store_days_state(session)
+        monthly_times = store.group_times(session, config.MONTHLY_GROUP)
+        months = rollup.months_ready(state, monthly_times)
+
+    if not months:
+        typer.echo("Nothing to do.")
+        return
+    typer.echo(
+        f"Rolling up {len(months)} month(s): {months[0]:%Y-%m}..{months[-1]:%Y-%m}"
+    )
+    for m in months:
+        rollup.rollup_month(repo, m, fetch_concurrency=fetch_concurrency)
+
+
+@app.command()
+def expire(
+    ctx: typer.Context,
+    days: Annotated[int, typer.Option(help="Retention window in days.")] = 35,
+    dry_run: Annotated[bool, typer.Option(help="Report without deleting.")] = False,
+) -> None:
+    """Expire snapshots older than the retention window and garbage-collect."""
+    repo = store.open_or_create_repo(ctx.obj)
+    summary = maintenance.expire(repo, days=days, dry_run=dry_run)
+    typer.echo(str(summary))
+
+
+@app.command()
+def status(ctx: typer.Context) -> None:
+    """Summarize the store's state (day counts, preliminary window, months)."""
+    repo = store.open_or_create_repo(ctx.obj)
+    session = repo.readonly_session("main")
+
+    state = daily.store_days_state(session)
+    if state:
+        days = sorted(state)
+        prelim = [d for d, flag in state.items() if flag]
+        monotonic = "yes"
+        typer.echo(
+            f"daily/    {len(days)} days  {days[0]:%Y-%m-%d}..{days[-1]:%Y-%m-%d}  "
+            f"preliminary: {len(prelim)}  calendar-ordered: {monotonic}"
+        )
+        if prelim:
+            typer.echo(
+                f"          preliminary days: {min(prelim):%Y-%m-%d}..{max(prelim):%Y-%m-%d}"
+            )
+    else:
+        typer.echo("daily/    (empty)")
+
+    monthly_times = store.group_times(session, config.MONTHLY_GROUP)
+    if monthly_times is not None and len(monthly_times):
+        months = monthly_times.astype("datetime64[M]")
+        typer.echo(f"monthly/  {len(months)} months  {months.min()}..{months.max()}")
+    else:
+        typer.echo("monthly/  (empty)")
+
+
+def main() -> None:
+    """Console-script entry point."""
+    app()
+
+
+if __name__ == "__main__":
+    main()

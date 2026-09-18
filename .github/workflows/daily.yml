@@ -1,0 +1,65 @@
+name: Daily update
+
+# Ingest new/final days and roll up ready months. Best-effort by design: every
+# command diffs the store and does only the missing work, so a failed or
+# skipped run needs no retry — the next run catches up. See docs/operations.md.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # NOAA publishes preliminary files a day or two after observation; exact
+    # timing doesn't matter since each run catches up on whatever is new.
+    - cron: "30 9 * * *"
+
+permissions: {}
+
+# Exactly one writer against the store, ever. Queued runs wait; nothing is
+# cancelled mid-commit.
+concurrency:
+  group: oisst-store
+  cancel-in-progress: false
+
+env:
+  FORCE_COLOR: 3
+
+jobs:
+  update:
+    name: Ingest + rollup
+    runs-on: ubuntu-latest
+    # Gate on the Stage 2 destination being configured (repo variables), so the
+    # schedule is safe to leave enabled before production exists.
+    if: vars.OISST_S3_BUCKET != ''
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write # OIDC for aws-actions/configure-aws-credentials
+    env:
+      OISST_S3_BUCKET: ${{ vars.OISST_S3_BUCKET }}
+      OISST_S3_PREFIX: ${{ vars.OISST_S3_PREFIX || 'oisst' }}
+      OISST_S3_REGION: ${{ vars.OISST_S3_REGION || 'us-east-1' }}
+      OISST_S3_ENDPOINT: ${{ vars.OISST_S3_ENDPOINT }}
+      OISST_S3_ACL: ${{ vars.OISST_S3_ACL || 'bucket-owner-full-control' }}
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: aws-actions/configure-aws-credentials@v5
+        if: vars.OISST_AWS_ROLE_ARN != ''
+        with:
+          role-to-assume: ${{ vars.OISST_AWS_ROLE_ARN }}
+          aws-region: ${{ vars.OISST_S3_REGION || 'us-east-1' }}
+
+      - uses: prefix-dev/setup-pixi@v0.10.2
+        with:
+          environments: default
+
+      - name: Ingest recent days (append + prelim→final swaps)
+        run: pixi run oisst ingest-recent --scan-months 2
+
+      - name: Roll up ready months
+        run: pixi run oisst rollup-monthly
+
+      - name: Store status
+        run: pixi run oisst status
