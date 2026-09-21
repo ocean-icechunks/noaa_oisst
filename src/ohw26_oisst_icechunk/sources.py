@@ -10,7 +10,7 @@ Preliminary files are published almost immediately and replaced by the final
 file roughly two weeks later (NOAA deletes the preliminary object when the
 final lands). Settled months contain only final files.
 
-Everything here is deliberately free of icechunk / S3 side effects so it can be
+This is free of icechunk / S3 side effects so it can be
 unit tested with a fake filesystem object.
 """
 
@@ -22,21 +22,21 @@ from typing import Any, Protocol
 
 # --- Source layout -----------------------------------------------------------
 
-BUCKET = "noaa-cdr-sea-surface-temp-optimum-interpolation-pds"
-URL_PREFIX = f"s3://{BUCKET}/"
-DATA_PREFIX = "data/v2.1/avhrr"
-REGION = "us-east-1"
+NODD_BUCKET = "noaa-cdr-sea-surface-temp-optimum-interpolation-pds"
+NODD_URL_PREFIX = f"s3://{NODD_BUCKET}/"
+NODD_DATA_PREFIX = "data/v2.1/avhrr"
+NODD_REGION = "us-east-1"
 
 # obstore wants the prefix without a trailing slash for the registry key, while
 # icechunk's VirtualChunkContainer matches against the trailing-slash form.
-STORE_PREFIX = URL_PREFIX.rstrip("/")
+NODD_STORE_PREFIX = NODD_URL_PREFIX.rstrip("/")
 
 _FINAL_RE = re.compile(r"^oisst-avhrr-v02r01\.(\d{8})\.nc$")
 _PRELIM_RE = re.compile(r"^oisst-avhrr-v02r01\.(\d{8})_preliminary\.nc$")
 
 
 class ListableFilesystem(Protocol):
-    """The one fsspec method the listing helpers need."""
+    """The fsspec method the listing helpers need."""
 
     def ls(self, path: str, detail: bool = ...) -> list[Any]:
         """List a directory's entries."""
@@ -46,14 +46,14 @@ class ListableFilesystem(Protocol):
 
 
 def key_for_date(d: date, preliminary: bool = False) -> str:
-    """Build the exact S3 object key (no bucket, no scheme) for a given date."""
+    """Build the S3 object key (no bucket, no scheme) for a given date."""
     suffix = "_preliminary" if preliminary else ""
-    return f"{DATA_PREFIX}/{d:%Y%m}/oisst-avhrr-v02r01.{d:%Y%m%d}{suffix}.nc"
+    return f"{NODD_DATA_PREFIX}/{d:%Y%m}/oisst-avhrr-v02r01.{d:%Y%m%d}{suffix}.nc"
 
 
 def url_for_date(d: date, preliminary: bool = False) -> str:
     """Build the full ``s3://`` URL for a given date."""
-    return f"{URL_PREFIX}{key_for_date(d, preliminary)}"
+    return f"{NODD_URL_PREFIX}{key_for_date(d, preliminary)}"
 
 
 # --- Date parsing / listing --------------------------------------------------
@@ -100,12 +100,12 @@ def dates_available(
     month directory under ``data/v2.1/avhrr/`` is discovered and scanned.
     """
     if months is None:
-        base = f"{BUCKET}/{DATA_PREFIX}/"
+        base = f"{NODD_BUCKET}/{NODD_DATA_PREFIX}/"
         months = [entry.rstrip("/").split("/")[-1] for entry in _list(fs, base)]
 
     keys: list[str] = []
     for month in months:
-        keys.extend(_list(fs, f"{BUCKET}/{DATA_PREFIX}/{month}/"))
+        keys.extend(_list(fs, f"{NODD_BUCKET}/{NODD_DATA_PREFIX}/{month}/"))
 
     return dates_from_keys(keys, preliminary)
 
@@ -147,6 +147,6 @@ def anon_s3() -> Any:
 
     return s3fs.S3FileSystem(
         anon=True,
-        endpoint_url=f"https://s3.{REGION}.amazonaws.com",
-        client_kwargs={"region_name": REGION},
+        endpoint_url=f"https://s3.{NODD_REGION}.amazonaws.com",
+        client_kwargs={"region_name": NODD_REGION},
     )

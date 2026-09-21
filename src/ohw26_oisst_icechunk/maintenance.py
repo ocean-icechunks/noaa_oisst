@@ -1,8 +1,7 @@
 """Snapshot expiry + garbage collection.
 
-Only needed when we operate the store ourselves (Stage 2 Option A); Arraylake
-would make this its managed GC's job. Do not enable in automation until the
-GC-vs-virtual-refs check in TASKS.md has been run against pinned icechunk 2.0.x.
+Do not enable in automation until the GC-vs-virtual-refs check in TASKS.md has been
+run against pinned icechunk 2.0.x.
 """
 
 from __future__ import annotations
@@ -40,7 +39,7 @@ def expire(
 
     if dry_run:
         summary = repo.garbage_collect(cutoff, dry_run=True)
-        logger.warning("Dry run - would garbage collect: %s", summary)
+        logger.warning("Dry run, would garbage collect: %s", summary)
         return summary
 
     expired = repo.expire_snapshots(older_than=cutoff)

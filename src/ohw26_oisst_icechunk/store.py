@@ -1,8 +1,8 @@
 """Icechunk repo plumbing: storage targets, virtual chunk container, state helpers.
 
-Every CLI command takes a *storage target* — a local path, an S3 bucket/prefix,
-or (post-Stage 2) an Arraylake repo — so the same commands run on a laptop
-against a directory and in Actions against the published store.
+CLI commands take a *storage target* (a local path or an S3 bucket/prefix)
+so the same commands run on a laptop against a directory and
+in Actions against the published store.
 """
 
 from __future__ import annotations
@@ -32,29 +32,25 @@ class StoreTarget:
     s3_endpoint: str | None = None
     s3_anonymous: bool = False
     s3_acl: str | None = "bucket-owner-full-control"
-    arraylake_repo: str | None = None
 
     def __post_init__(self) -> None:
         """Validate that exactly one destination is configured."""
         destinations = [
             self.local_path is not None,
             self.s3_bucket is not None,
-            self.arraylake_repo is not None,
         ]
         if sum(destinations) != 1:
-            msg = "Exactly one of local_path, s3_bucket, or arraylake_repo must be set"
+            msg = "Exactly one of local_path or s3_bucket must be set"
             raise ValueError(msg)
 
     def storage(self) -> icechunk.Storage:
         """Build the icechunk ``Storage`` for this target.
 
-        Every S3 write carries an ``x-amz-acl: bucket-owner-full-control``
-        header (via Icechunk's ``write_headers``) unless ``s3_acl`` is
-        ``None``. AWS accepts this canned ACL under every Object Ownership
-        mode - including "bucket owner enforced", where ACLs are otherwise
-        ignored - so it's a safe no-op for same-account writes and only
-        matters for cross-account destinations (e.g. Source.coop). Set
-        ``s3_acl=None`` for non-AWS endpoints that reject the header.
+        S3 writes carry an ``x-amz-acl: bucket-owner-full-control``
+        header (via Icechunk's ``write_headers``) to support Source.coop
+
+        It's a safe no-op for same-account writes.
+        Set ``s3_acl=None`` for non-AWS endpoints that reject the header.
         """
         if self.local_path is not None:
             return icechunk.local_filesystem_storage(str(self.local_path))
@@ -70,7 +66,7 @@ class StoreTarget:
                 force_path_style=bool(self.s3_endpoint),
                 write_headers={"x-amz-acl": self.s3_acl} if self.s3_acl else None,
             )
-        msg = "Arraylake targets await the Stage 2 destination decision (see PLAN.md)"
+        msg = "No valid storage configured"
         raise NotImplementedError(msg)
 
 
@@ -83,8 +79,8 @@ def build_virtual_chunk_container_config() -> icechunk.RepositoryConfig:
     config = icechunk.RepositoryConfig.default()
     config.set_virtual_chunk_container(
         icechunk.VirtualChunkContainer(
-            url_prefix=sources.URL_PREFIX,
-            store=icechunk.s3_store(region=sources.REGION, anonymous=True),
+            url_prefix=sources.NODD_URL_PREFIX,
+            store=icechunk.s3_store(region=sources.NODD_REGION, anonymous=True),
         ),
     )
     return config
@@ -93,7 +89,7 @@ def build_virtual_chunk_container_config() -> icechunk.RepositoryConfig:
 def virtual_chunk_credentials() -> Any:
     """Anonymous credentials authorizing access to the NOAA virtual chunks."""
     return icechunk.containers_credentials(
-        {sources.URL_PREFIX: icechunk.s3_anonymous_credentials()},
+        {sources.NODD_URL_PREFIX: icechunk.s3_anonymous_credentials()},
     )
 
 

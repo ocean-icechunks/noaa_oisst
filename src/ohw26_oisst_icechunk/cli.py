@@ -1,8 +1,7 @@
 """The ``oisst`` command-line interface (Typer).
 
 Every command is *read the store's state → diff against what should be there →
-do the missing work*. The store is the checkpoint — no cursor file, no external
-state, no ``--resume``: kill any command and re-run it.
+do the missing work*.
 
 The storage target comes from global options with env-variable fallbacks
 (``--store-path`` / ``OISST_STORE_PATH``, ``--s3-bucket`` / ``OISST_S3_BUCKET``,
@@ -67,13 +66,6 @@ def main_options(
             "send none.",
         ),
     ] = "bucket-owner-full-control",
-    arraylake_repo: Annotated[
-        str | None,
-        typer.Option(
-            envvar="OISST_ARRAYLAKE_REPO",
-            help="Arraylake org/repo (awaits the Stage 2 destination decision).",
-        ),
-    ] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
     """Resolve the storage target shared by every subcommand."""
@@ -99,7 +91,6 @@ def main_options(
             s3_region=s3_region,
             s3_endpoint=s3_endpoint,
             s3_acl=s3_acl or None,
-            arraylake_repo=arraylake_repo,
         )
     except ValueError as err:
         raise typer.BadParameter(str(err)) from err

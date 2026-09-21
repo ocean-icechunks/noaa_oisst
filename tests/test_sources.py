@@ -83,19 +83,19 @@ def test_dates_from_keys_sorts_and_filters() -> None:
 
 
 def _month_dir(month: str) -> str:
-    return f"{sources.BUCKET}/{sources.DATA_PREFIX}/{month}/"
+    return f"{sources.NODD_BUCKET}/{sources.NODD_DATA_PREFIX}/{month}/"
 
 
 def test_dates_available_for_given_months() -> None:
     fs = FakeS3(
         {
             _month_dir("202401"): [
-                f"{sources.BUCKET}/{sources.DATA_PREFIX}/202401/oisst-avhrr-v02r01.20240101.nc",
-                f"{sources.BUCKET}/{sources.DATA_PREFIX}/202401/oisst-avhrr-v02r01.20240102.nc",
+                f"{sources.NODD_BUCKET}/{sources.NODD_DATA_PREFIX}/202401/oisst-avhrr-v02r01.20240101.nc",
+                f"{sources.NODD_BUCKET}/{sources.NODD_DATA_PREFIX}/202401/oisst-avhrr-v02r01.20240102.nc",
             ],
             _month_dir("202607"): [
-                f"{sources.BUCKET}/{sources.DATA_PREFIX}/202607/oisst-avhrr-v02r01.20260701.nc",
-                f"{sources.BUCKET}/{sources.DATA_PREFIX}/202607/oisst-avhrr-v02r01.20260702_preliminary.nc",
+                f"{sources.NODD_BUCKET}/{sources.NODD_DATA_PREFIX}/202607/oisst-avhrr-v02r01.20260701.nc",
+                f"{sources.NODD_BUCKET}/{sources.NODD_DATA_PREFIX}/202607/oisst-avhrr-v02r01.20260702_preliminary.nc",
             ],
         },
     )
@@ -115,18 +115,18 @@ def test_dates_available_missing_month_is_skipped() -> None:
 
 
 def test_dates_available_discovers_months_when_not_given() -> None:
-    base = f"{sources.BUCKET}/{sources.DATA_PREFIX}/"
+    base = f"{sources.NODD_BUCKET}/{sources.NODD_DATA_PREFIX}/"
     fs = FakeS3(
         {
             base: [
-                f"{sources.BUCKET}/{sources.DATA_PREFIX}/198109",
-                f"{sources.BUCKET}/{sources.DATA_PREFIX}/202401",
+                f"{sources.NODD_BUCKET}/{sources.NODD_DATA_PREFIX}/198109",
+                f"{sources.NODD_BUCKET}/{sources.NODD_DATA_PREFIX}/202401",
             ],
             _month_dir("198109"): [
-                f"{sources.BUCKET}/{sources.DATA_PREFIX}/198109/oisst-avhrr-v02r01.19810901.nc",
+                f"{sources.NODD_BUCKET}/{sources.NODD_DATA_PREFIX}/198109/oisst-avhrr-v02r01.19810901.nc",
             ],
             _month_dir("202401"): [
-                f"{sources.BUCKET}/{sources.DATA_PREFIX}/202401/oisst-avhrr-v02r01.20240101.nc",
+                f"{sources.NODD_BUCKET}/{sources.NODD_DATA_PREFIX}/202401/oisst-avhrr-v02r01.20240101.nc",
             ],
         },
     )

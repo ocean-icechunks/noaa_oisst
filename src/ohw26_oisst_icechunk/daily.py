@@ -2,7 +2,7 @@
 
 The group holds one timestep per day, calendar-ordered by construction:
 appends always land at the end in date order, and final-file swaps are
-in-place ``set_virtual_ref`` calls (Stage 0 decision) that leave the time
+in-place ``set_virtual_ref`` calls that leave the time
 index untouched and flip the day's ``preliminary`` flag.
 """
 
@@ -39,9 +39,9 @@ def object_store_registry() -> Any:
     from obstore.store import S3Store  # noqa: PLC0415
 
     s3 = S3Store.from_url(
-        sources.STORE_PREFIX, region=sources.REGION, skip_signature=True
+        sources.NODD_STORE_PREFIX, region=sources.NODD_REGION, skip_signature=True
     )
-    return ObjectStoreRegistry({sources.STORE_PREFIX: s3})
+    return ObjectStoreRegistry({sources.NODD_STORE_PREFIX: s3})
 
 
 def open_day(d: date, preliminary: bool, registry: Any | None = None) -> xr.Dataset:

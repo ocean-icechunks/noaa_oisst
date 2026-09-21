@@ -9,7 +9,7 @@ on:
   schedule:
     # NOAA publishes preliminary files a day or two after observation; exact
     # timing doesn't matter since each run catches up on whatever is new.
-    - cron: "30 9 * * *"
+    - cron: "30 3,9,15,21 * * *"
 
 permissions: {}
 
@@ -26,8 +26,6 @@ jobs:
   update:
     name: Ingest + rollup
     runs-on: ubuntu-latest
-    # Gate on the Stage 2 destination being configured (repo variables), so the
-    # schedule is safe to leave enabled before production exists.
     if: vars.OISST_S3_BUCKET != ''
     timeout-minutes: 60
     permissions:
@@ -37,7 +35,7 @@ jobs:
       OISST_S3_BUCKET: ${{ vars.OISST_S3_BUCKET }}
       OISST_S3_PREFIX: ${{ vars.OISST_S3_PREFIX || 'oisst' }}
       OISST_S3_REGION: ${{ vars.OISST_S3_REGION || 'us-east-1' }}
-      OISST_S3_ENDPOINT: ${{ vars.OISST_S3_ENDPOINT }}
+      OISST_S3_ENDPOINT: ${{ vars.OISST_S3_ENDPOINT || '' }}
       OISST_S3_ACL: ${{ vars.OISST_S3_ACL || 'bucket-owner-full-control' }}
 
     steps:

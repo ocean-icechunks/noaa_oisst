@@ -38,7 +38,7 @@ VIRTUAL_FETCH_CONCURRENCY = 10
 def monthly_statistics(ds: xr.Dataset, month: date) -> xr.Dataset:
     """Reduce a month of daily OISST data to a single-timestep statistics Dataset.
 
-    For each data variable in ``ds``, four real variables ``{var}_min`` /
+    For each data variable, four statistics variables ``{var}_min`` /
     ``{var}_max`` / ``{var}_mean`` / ``{var}_std`` are produced by reducing over
     ``time``, then given a single new ``time`` coordinate at the month's start
     so the result can be appended along ``time`` to the monthly group.
@@ -89,8 +89,8 @@ def rollup_month(
 ) -> str | None:
     """Compute and commit one month's statistics from the daily group.
 
-    Reads the referenced NOAA bytes for the month (a real reduction, not a
-    virtual reference). Appends in calendar order; a month already present is
+    Reads the referenced NOAA bytes for the month.
+    Appends in calendar order; a month already present is
     overwritten in place via ``region="auto"``.
     """
     session = repo.readonly_session("main")

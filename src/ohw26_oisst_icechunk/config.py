@@ -23,7 +23,7 @@ MONTHLY_GROUP = "monthly"
 # First day of OISST v2.1 data.
 START_DATE = date(1981, 9, 1)
 
-# The four data variables in every daily file.
+# The data variables in daily files.
 VARIABLES = ("sst", "anom", "err", "ice")
 
 # Grid shape (lat, lon) of the 1/4-degree OISST grid.
