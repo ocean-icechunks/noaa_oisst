@@ -38,7 +38,8 @@ Flags for local work, env vars in Actions.
 ## Routine operation (automated)
 
 [`daily.yml`](https://github.com/oceanhackweek/ohw26_oisst_icechunk/blob/main/.github/workflows/daily.yml)
-runs once a day (plus `workflow_dispatch`) and executes:
+runs four times a day (03:30, 09:30, 15:30, 21:30 UTC, plus `workflow_dispatch`)
+and executes:
 
 ```bash
 pixi run oisst ingest-recent  --scan-months 2
@@ -47,11 +48,12 @@ pixi run oisst rollup-monthly
 
 - `ingest-recent` lists NOAA's trailing months, appends any new days (marked
   `preliminary=True` when only the preliminary file exists), and swaps
-  preliminary days to final in place when NOAA has published the final file.
-  Typical day completes in a few minutes as it has 1–3 appends and ~1 swap.
+  preliminary days to final in place when NOAA has published the final file. A
+  typical run completes in a few minutes; most runs have 0–1 appends and
+  occasionally a swap.
 - `rollup-monthly` computes the 16 monthly statistics for any month that is now
-  complete and all-final. Most days it does nothing; around mid-month one month
-  becomes ready (~31 files ≈ 50 MB from NOAA, ~5 min).
+  complete and all-final. Most runs it does nothing; around mid-month one run
+  finds a month ready (~31 files ≈ 50 MB from NOAA, ~5 min).
 
 One writer, always: the workflow uses
 `concurrency: {group: oisst-store, cancel-in-progress: false}`, so there is no
@@ -138,16 +140,16 @@ of superseded chunks, so periodic expiry + GC is required.
 is `workflow_dispatch`-only and defaults to `--dry-run`. Before enabling the
 weekly cron (or running without `--dry-run` against production), the
 GC-vs-virtual-references check in TASKS.md must pass on a throwaway copy of the
-store against the pinned icechunk 2.0.x — GC is the one genuinely destructive
+store against the pinned icechunk 2.2.x — GC is the one genuinely destructive
 operation here. Retention is 35 days; expiry costs time-travel history beyond
 that window.
 
 ## Failure modes and what they mean
 
 - **A reader hits a missing chunk on a preliminary day.** NOAA deleted the
-  preliminary file when the final landed, and the next daily run hasn't swapped
-  the reference yet (≤ ~24 h window). No action needed — the next run fixes it;
-  readers can use `.sel(preliminary=False)` meanwhile.
+  preliminary file when the final landed, and the next scheduled run hasn't
+  swapped the reference yet (≤ ~24 h window). No action needed — the next run
+  fixes it; readers can use `.sel(preliminary=False)` meanwhile.
 - **`WARNING: skipping YYYY-MM-DD - older than the store's tail (gap)`** from
   `ingest-recent`: a day appeared at NOAA that predates the store's newest day
   and isn't in the store. Appending it would break calendar order, so it is
@@ -163,7 +165,7 @@ that window.
   that URL, run the recovery command the error prints:
   `oisst backfill-daily --start <tail+1>`.
 - **A workflow run fails outright** (network, NOAA outage, runner death): do
-  nothing. Commits are atomic, so the store is valid; tomorrow's run catches up.
+  nothing. Commits are atomic, so the store is valid; the next run catches up.
   Re-run manually via `workflow_dispatch` only if you're impatient.
 - **`rollup-monthly` won't produce a month you expect**: the month has a missing
   or still-preliminary day — `oisst status` shows the preliminary window.

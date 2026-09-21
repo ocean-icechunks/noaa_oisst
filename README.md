@@ -138,9 +138,9 @@ is computed from final data only and has no such coordinate.
 
 ## Update cadence
 
-A daily GitHub Actions run ingests whatever is new: new preliminary days, finals
-replacing the preliminary days they supersede, and a monthly rollup once every
-day in a month is final.
+A GitHub Actions job, four times a day, ingests whatever is new: new preliminary
+days, finals replacing the preliminary days they supersede, and a monthly rollup
+once every day in a month is final.
 
 ## Things to know
 
@@ -148,9 +148,9 @@ day in a month is final.
   container as shown above. `monthly/` exists as chunks in the Source.coop
   bucket and needs no container.
 - **Preliminary references are transient.** NOAA deletes a preliminary file when
-  it publishes the final one; we replace the reference on the next daily run. A
-  missing-chunk error on a day still marked preliminary means you caught that
-  ~24-hour window — re-read, or use `.sel(preliminary=False)`.
+  it publishes the final one; we replace the reference on the next scheduled
+  run. A missing-chunk error on a day still marked preliminary means you caught
+  that ~24-hour window — re-read, or use `.sel(preliminary=False)`.
 - **Time is calendar-ordered** in both groups; no `.sortby("time")` needed.
   `oisst status` verifies `daily/`'s order and flags it if it's ever not.
 - **Library versions matter.** These stores are written with the
@@ -168,7 +168,7 @@ See [docs/operations.md](docs/operations.md) for the runbook and
 [docs/chunking.md](docs/chunking.md) for why the chunk shapes are what they are.
 
 ```bash
-pixi run oisst ingest-recent  --scan-months 2   # what the daily Action runs
+pixi run oisst ingest-recent  --scan-months 2   # what the scheduled Action runs
 pixi run oisst rollup-monthly                   # catches up by default
 pixi run oisst expire         --days 35
 pixi run oisst status
