@@ -8,9 +8,11 @@ in Actions against the published store.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
 from pathlib import Path  # noqa: TC003 - dataclass field type
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from datetime import date
 
 import icechunk
 import numpy as np
@@ -139,13 +141,6 @@ def group_times(session: icechunk.Session, group: str) -> np.ndarray | None:
     return np.asarray(ds["time"].values)
 
 
-def naive_utc(dt: datetime) -> datetime:
-    """Convert a tz-aware datetime to naive UTC (pass through if already naive)."""
-    if dt.tzinfo is not None:
-        dt = dt.astimezone(UTC).replace(tzinfo=None)
-    return dt
-
-
 def times_to_days(times: np.ndarray) -> list[date]:
     """Truncate a datetime64 time coordinate to calendar days.
 
@@ -153,13 +148,6 @@ def times_to_days(times: np.ndarray) -> list[date]:
     """
     days = times.astype("datetime64[D]")
     return [d.astype(object) for d in days]
-
-
-def day_in_times(times: np.ndarray | None, d: date) -> bool:
-    """Whether calendar day ``d`` already has a timestamp in ``times``."""
-    if times is None:
-        return False
-    return bool(np.any(times.astype("datetime64[D]") == np.datetime64(d)))
 
 
 def month_in_times(times: np.ndarray | None, month: date) -> bool:

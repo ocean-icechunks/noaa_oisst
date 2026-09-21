@@ -153,7 +153,9 @@ def _run_daily_work(
 @app.command()
 def backfill_daily(
     ctx: typer.Context,
-    start: Annotated[str, typer.Option(help="First day, YYYY-MM-DD.")] = "1981-09-01",
+    start: Annotated[
+        str, typer.Option(help="First day, YYYY-MM-DD.")
+    ] = config.START_DATE.isoformat(),
     end: Annotated[
         str | None, typer.Option(help="Last day, YYYY-MM-DD (default: today).")
     ] = None,

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 from typer.testing import CliRunner
 
-from ohw26_oisst_icechunk import cli, store
+from ohw26_oisst_icechunk import cli, config, store
 
 if TYPE_CHECKING:
     import pytest
@@ -100,6 +100,26 @@ def test_ingest_recent_exits_1_on_a_hole_after_the_tail(
     assert result.exit_code == 1
     assert "ERROR" in result.output
     assert "missing 2024-01-02..2024-01-04" in result.output
+
+
+def test_backfill_daily_default_start_matches_config_start_date(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, list[str]] = {}
+
+    def fake_run_daily_work(
+        target: object,  # noqa: ARG001
+        months: list[str],
+        commit_batch_months: bool,  # noqa: ARG001
+    ) -> None:
+        captured["months"] = months
+
+    monkeypatch.setattr(cli, "_run_daily_work", fake_run_daily_work)
+
+    result = runner.invoke(cli.app, ["--store-path", "/x", "backfill-daily"])
+
+    assert result.exit_code == 0
+    assert captured["months"][0] == f"{config.START_DATE:%Y%m}"
 
 
 def test_rollup_monthly_continues_after_one_month_fails(

@@ -26,9 +26,6 @@ START_DATE = date(1981, 9, 1)
 # The data variables in daily files.
 VARIABLES = ("sst", "anom", "err", "ice")
 
-# Grid shape (lat, lon) of the 1/4-degree OISST grid.
-GRID_SHAPE = (720, 1440)
-
 # --- daily/ ------------------------------------------------------------------
 
 # Chunk shape of the real (non-virtual) `preliminary` bool coordinate.
