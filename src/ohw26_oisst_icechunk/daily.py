@@ -11,7 +11,10 @@ from __future__ import annotations
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import date  # noqa: TC003
+from datetime import (
+    date,
+    timedelta,
+)
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -94,6 +97,10 @@ class DailyWork:
     # Available days older than the store's tail that cannot be appended
     # (mid-record gaps need insertion, which we deliberately don't do).
     skipped_gaps: list[date] = field(default_factory=list)
+    # Days strictly between the store's tail and the first appendable day
+    # that NOAA doesn't have yet. Appending past them would leave a
+    # permanent hole in daily/, so append is cleared until they arrive.
+    missing: list[date] = field(default_factory=list)
 
     def __bool__(self) -> bool:
         """Whether there is any work at all."""
@@ -126,7 +133,13 @@ def plan_daily_work(
             continue
         append.append((d, d not in final_available))
 
-    return DailyWork(append=append, swap=swap, skipped_gaps=skipped)
+    missing: list[date] = []
+    if tail is not None and append and append[0][0] != tail + timedelta(days=1):
+        gap_days = (append[0][0] - tail).days - 1
+        missing = [tail + timedelta(days=i) for i in range(1, gap_days + 1)]
+        append = []
+
+    return DailyWork(append=append, swap=swap, skipped_gaps=skipped, missing=missing)
 
 
 def store_days_state(session: icechunk.Session) -> dict[date, bool]:

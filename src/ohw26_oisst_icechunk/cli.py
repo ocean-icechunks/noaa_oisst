@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 import warnings
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path  # noqa: TC003 - typer needs it at runtime
 from typing import Annotated
 
@@ -103,6 +103,17 @@ def _echo_work(work: daily.DailyWork) -> None:
         typer.echo(
             f"WARNING: skipping {d:%Y-%m-%d} - older than the store's tail (gap)"
         )
+    if work.missing:
+        tail = work.missing[0] - timedelta(days=1)
+        first_available = work.missing[-1] + timedelta(days=1)
+        recovery = tail + timedelta(days=1)
+        typer.echo(
+            f"ERROR: store tail is {tail:%Y-%m-%d} but the next available day at "
+            f"NOAA is {first_available:%Y-%m-%d}; missing "
+            f"{work.missing[0]:%Y-%m-%d}..{work.missing[-1]:%Y-%m-%d}. Refusing to "
+            "append past the hole. Recover with "
+            f"`oisst backfill-daily --start {recovery:%Y-%m-%d}`."
+        )
 
 
 def _run_daily_work(
@@ -120,7 +131,7 @@ def _run_daily_work(
     state = daily.store_days_state(session)
     work = daily.plan_daily_work(state, finals, prelims)
     _echo_work(work)
-    if not work:
+    if not work and not work.missing:
         typer.echo("Nothing to do.")
         return
 
@@ -134,6 +145,9 @@ def _run_daily_work(
         daily.append_batch(repo, work.append)
 
     daily.swap_to_final(repo, work.swap)
+
+    if work.missing:
+        raise typer.Exit(1)
 
 
 @app.command()

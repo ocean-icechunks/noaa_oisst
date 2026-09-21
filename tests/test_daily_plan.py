@@ -69,6 +69,37 @@ def test_gap_older_than_tail_is_skipped_with_warning() -> None:
     assert work.append == [(date(2024, 1, 4), False)]
 
 
+def test_hole_after_tail_refuses_append_and_reports_missing() -> None:
+    work = plan_daily_work(
+        store_days={date(2024, 1, 1): False},
+        final_available={date(2024, 1, 5)},
+        prelim_available=set(),
+    )
+    assert work.append == []
+    assert work.missing == [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 4)]
+    assert not work
+
+
+def test_contiguous_append_after_tail_has_no_missing() -> None:
+    work = plan_daily_work(
+        store_days={date(2024, 1, 1): False},
+        final_available={date(2024, 1, 2)},
+        prelim_available=set(),
+    )
+    assert work.append == [(date(2024, 1, 2), False)]
+    assert work.missing == []
+
+
+def test_empty_store_has_no_contiguity_requirement() -> None:
+    work = plan_daily_work(
+        store_days={},
+        final_available={date(2024, 1, 5)},
+        prelim_available=set(),
+    )
+    assert work.append == [(date(2024, 1, 5), False)]
+    assert work.missing == []
+
+
 def test_no_work_is_falsy() -> None:
     work = plan_daily_work(
         store_days={date(2024, 1, 1): False},
