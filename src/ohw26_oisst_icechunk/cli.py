@@ -213,8 +213,19 @@ def rollup_monthly(
     typer.echo(
         f"Rolling up {len(months)} month(s): {months[0]:%Y-%m}..{months[-1]:%Y-%m}"
     )
+    failed: list[date] = []
     for m in months:
-        rollup.rollup_month(repo, m, fetch_concurrency=fetch_concurrency)
+        try:
+            rollup.rollup_month(repo, m, fetch_concurrency=fetch_concurrency)
+        except RuntimeError as err:
+            logger.exception("Rollup failed for %s", f"{m:%Y-%m}")
+            typer.echo(f"WARNING: rollup failed for {m:%Y-%m}: {err}")
+            failed.append(m)
+
+    if failed:
+        names = ", ".join(f"{m:%Y-%m}" for m in failed)
+        typer.echo(f"ERROR: rollup failed for {len(failed)} month(s): {names}")
+        raise typer.Exit(1)
 
 
 @app.command()

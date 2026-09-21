@@ -100,3 +100,47 @@ def test_ingest_recent_exits_1_on_a_hole_after_the_tail(
     assert result.exit_code == 1
     assert "ERROR" in result.output
     assert "missing 2024-01-02..2024-01-04" in result.output
+
+
+def test_rollup_monthly_continues_after_one_month_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[date] = []
+
+    def fake_rollup_month(
+        repo: object,  # noqa: ARG001
+        month: date,
+        fetch_concurrency: int,  # noqa: ARG001
+    ) -> str | None:
+        calls.append(month)
+        if month == date(2024, 1, 1):
+            msg = "boom"
+            raise RuntimeError(msg)
+        return "snap"
+
+    monkeypatch.setattr(
+        cli.store,
+        "open_or_create_repo",
+        lambda target: _FakeRepo(),  # noqa: ARG005
+    )
+    monkeypatch.setattr(cli.daily, "store_days_state", lambda session: {})  # noqa: ARG005
+    monkeypatch.setattr(
+        cli.store,
+        "group_times",
+        lambda session, group: None,  # noqa: ARG005
+    )
+    monkeypatch.setattr(
+        cli.rollup,
+        "months_ready",
+        lambda state, monthly_times: [  # noqa: ARG005
+            date(2024, 1, 1),
+            date(2024, 2, 1),
+        ],
+    )
+    monkeypatch.setattr(cli.rollup, "rollup_month", fake_rollup_month)
+
+    result = runner.invoke(cli.app, ["--store-path", "/x", "rollup-monthly"])
+
+    assert calls == [date(2024, 1, 1), date(2024, 2, 1)]
+    assert result.exit_code == 1
+    assert "boom" in result.output
