@@ -79,12 +79,28 @@ available day won't be contiguous with the tail, so it fails with
 optional). Leave both empty for a normal manual run (same as the schedule:
 `ingest-recent`). Set `start` (and optionally `end`) to switch that run to
 `backfill-daily --start <start> [--end <end>]` instead — e.g. to repair the hole
-named in an `ingest-recent` `ERROR: ... missing ...` failure.
+named in an `ingest-recent` `ERROR: ... missing ...` failure. The workflow never
+passes `--create`, so this only works once the store already exists (see
+"First-time setup" below).
+
+## First-time setup
+
+Every command except `backfill-daily --create` refuses to create a store —
+`status`, `expire`, `rollup-monthly`, and `ingest-recent` all fail with
+`ERROR: No Icechunk repository at ...; run backfill-daily --create` against a
+target that doesn't exist yet, rather than silently creating one at a typo'd
+path or bucket. Before the schedule (or any other command) can do anything,
+create the store once by hand:
+
+```bash
+pixi run oisst backfill-daily --create --start 1981-09-01
+```
 
 ## Manual commands
 
 All of these work against any target; substitute `--store-path` for a local
-copy.
+copy. `status`, `expire`, and `rollup-monthly` require an existing store and
+exit 1 (see "First-time setup" above) if there isn't one yet.
 
 ```bash
 # What's in the store right now (day range, preliminary window, months)
@@ -93,7 +109,8 @@ pixi run oisst status
 # Catch up daily data over the trailing months (what the scheduled Action runs)
 pixi run oisst ingest-recent --scan-months 2
 
-# Backfill a date range, committing per month (initial load / gap repair)
+# Backfill a date range, committing per month (gap repair; add --create only
+# for the very first run against a target, see "First-time setup" above)
 pixi run oisst backfill-daily --start 1981-09-01 --end 2020-12-31
 
 # Roll up every ready month, or one specific month

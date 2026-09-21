@@ -116,17 +116,33 @@ def _echo_work(work: daily.DailyWork) -> None:
         )
 
 
+def _open_repo(
+    target: store.StoreTarget, *, create: bool = False
+) -> icechunk.Repository:
+    """Open the repo, turning a missing store into a clean CLI exit."""
+    try:
+        return store.open_repo(target, create=create)
+    except FileNotFoundError as err:
+        typer.echo(f"ERROR: {err}")
+        raise typer.Exit(1) from err
+
+
 def _run_daily_work(
     target: store.StoreTarget,
     months: list[str],
     commit_batch_months: bool,
+    *,
+    create: bool = False,
 ) -> None:
-    """Shared daily-ingest body: list NOAA months, diff, append + swap."""
+    """Shared daily-ingest body: open the store, list NOAA months, diff, append + swap."""
+    # Open the store before listing NOAA so a missing store fails fast (and
+    # without any network traffic).
+    repo = _open_repo(target, create=create)
+
     fs = sources.anon_s3()
     finals = set(sources.dates_available(fs, preliminary=False, months=months))
     prelims = set(sources.dates_available(fs, preliminary=True, months=months))
 
-    repo = store.open_or_create_repo(target)
     session = repo.readonly_session("main")
     state = daily.store_days_state(session)
     work = daily.plan_daily_work(state, finals, prelims)
@@ -159,13 +175,20 @@ def backfill_daily(
     end: Annotated[
         str | None, typer.Option(help="Last day, YYYY-MM-DD (default: today).")
     ] = None,
+    create: Annotated[
+        bool,
+        typer.Option(
+            help="Create the store if it doesn't exist yet. backfill-daily is "
+            "the only command that may create a store."
+        ),
+    ] = False,
 ) -> None:
     """Backfill the daily/ group over a date range, committing per month."""
     start_date = date.fromisoformat(start)
     end_date = date.fromisoformat(end) if end else datetime.now(tz=UTC).date()
     months = sources.months_between(start_date, end_date)
     typer.echo(f"Backfilling {months[0]}..{months[-1]} ({len(months)} months)")
-    _run_daily_work(ctx.obj, months, commit_batch_months=True)
+    _run_daily_work(ctx.obj, months, commit_batch_months=True, create=create)
 
 
 @app.command()
@@ -177,7 +200,7 @@ def ingest_recent(
 ) -> None:
     """Append new days and swap preliminary→final over the trailing months."""
     months = sources.recent_months(datetime.now(tz=UTC), count=scan_months)
-    _run_daily_work(ctx.obj, months, commit_batch_months=False)
+    _run_daily_work(ctx.obj, months, commit_batch_months=False, create=False)
 
 
 @app.command()
@@ -199,7 +222,7 @@ def rollup_monthly(
     ] = rollup.VIRTUAL_FETCH_CONCURRENCY,
 ) -> None:
     """Compute monthly statistics for every complete, all-final month."""
-    repo = store.open_or_create_repo(ctx.obj)
+    repo = _open_repo(ctx.obj)
     session = repo.readonly_session("main")
 
     if month is not None:
@@ -237,7 +260,7 @@ def expire(
     dry_run: Annotated[bool, typer.Option(help="Report without deleting.")] = False,
 ) -> None:
     """Expire snapshots older than the retention window and garbage-collect."""
-    repo = store.open_or_create_repo(ctx.obj)
+    repo = _open_repo(ctx.obj)
     summary = maintenance.expire(repo, days=days, dry_run=dry_run)
     typer.echo(str(summary))
 
@@ -245,7 +268,7 @@ def expire(
 @app.command()
 def status(ctx: typer.Context) -> None:
     """Summarize the store's state (day counts, preliminary window, months)."""
-    repo = store.open_or_create_repo(ctx.obj)
+    repo = _open_repo(ctx.obj)
     session = repo.readonly_session("main")
 
     state = daily.store_days_state(session)

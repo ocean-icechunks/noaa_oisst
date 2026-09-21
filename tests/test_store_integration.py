@@ -53,7 +53,7 @@ def _synthetic_daily(year: int, month: int, preliminary_days: set[int]) -> xr.Da
 @pytest.fixture
 def repo(tmp_path: Path) -> icechunk.Repository:
     target = store.StoreTarget(local_path=tmp_path / "store")
-    return store.open_or_create_repo(target)
+    return store.open_repo(target, create=True)
 
 
 def _write_daily(repo: icechunk.Repository, ds: xr.Dataset) -> None:
@@ -177,6 +177,30 @@ class _RaisingSession:
 def test_open_group_propagates_non_group_not_found_errors() -> None:
     with pytest.raises(PermissionError, match="permission denied"):
         store.open_group(_RaisingSession(), config.DAILY_GROUP)  # type: ignore[arg-type]
+
+
+def test_open_repo_without_create_raises_and_leaves_no_directory(
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "does-not-exist"
+    target = store.StoreTarget(local_path=missing)
+
+    with pytest.raises(FileNotFoundError, match="backfill-daily --create"):
+        store.open_repo(target)
+
+    assert not missing.exists()
+
+
+def test_open_repo_with_create_creates_then_default_call_opens_it(
+    tmp_path: Path,
+) -> None:
+    target = store.StoreTarget(local_path=tmp_path / "store")
+
+    created = store.open_repo(target, create=True)
+    assert created is not None
+
+    opened = store.open_repo(target)
+    assert opened is not None
 
 
 def test_store_target_requires_exactly_one_destination() -> None:

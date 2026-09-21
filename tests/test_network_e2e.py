@@ -34,7 +34,7 @@ def _noaa_direct(d: date) -> xr.Dataset:
 
 def test_virtual_append_swap_and_read_back(tmp_path: Path) -> None:
     target = store.StoreTarget(local_path=tmp_path / "store")
-    repo = store.open_or_create_repo(target)
+    repo = store.open_repo(target, create=True)
 
     # append three final days, then artificially mark day 2 preliminary
     daily.append_batch(repo, [(d, False) for d in DAYS])
@@ -72,7 +72,7 @@ def test_virtual_append_swap_and_read_back(tmp_path: Path) -> None:
 
 def test_rerun_of_planner_is_a_noop(tmp_path: Path) -> None:
     target = store.StoreTarget(local_path=tmp_path / "store")
-    repo = store.open_or_create_repo(target)
+    repo = store.open_repo(target, create=True)
     daily.append_batch(repo, [(d, False) for d in DAYS])
 
     state = daily.store_days_state(repo.readonly_session("main"))

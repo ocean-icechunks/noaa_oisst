@@ -73,6 +73,12 @@ class StoreTarget:
         msg = "No valid storage configured"
         raise NotImplementedError(msg)
 
+    def describe(self) -> str:
+        """Human-readable target location, for messages and logs."""
+        if self.local_path is not None:
+            return str(self.local_path)
+        return f"s3://{self.s3_bucket}/{self.s3_prefix}"
+
 
 # --- Virtual chunk container / credentials -----------------------------------
 
@@ -97,22 +103,34 @@ def virtual_chunk_credentials() -> Any:
     )
 
 
-def open_or_create_repo(target: StoreTarget) -> icechunk.Repository:
-    """Open (or create on first run) the repo, with the NOAA virtual chunk
-    container registered and authorized.
+def open_repo(target: StoreTarget, create: bool = False) -> icechunk.Repository:
+    """Open the repo at ``target``, with the NOAA virtual chunk container
+    registered and authorized.
 
-    On creation the config is persisted with ``save_config()`` (Stage 0
-    decision) so readers inherit the container registration from the store.
+    Read-only commands (``status``, ``expire``, ``rollup-monthly``,
+    ``ingest-recent``) must never create a store at a typo'd location, so by
+    default a missing repo raises ``FileNotFoundError`` instead of silently
+    coming into existence. Pass ``create=True`` (only ``backfill-daily
+    --create`` does) to create it when missing; the config is then persisted
+    with ``save_config()`` (Stage 0 decision) so readers inherit the
+    container registration from the store.
     """
     storage = target.storage()
-    creating = not icechunk.Repository.exists(storage)
-    repo = icechunk.Repository.open_or_create(
+    if icechunk.Repository.exists(storage):
+        return icechunk.Repository.open(
+            storage,
+            config=build_virtual_chunk_container_config(),
+            authorize_virtual_chunk_access=virtual_chunk_credentials(),
+        )
+    if not create:
+        msg = f"No Icechunk repository at {target.describe()}; run backfill-daily --create"
+        raise FileNotFoundError(msg)
+    repo = icechunk.Repository.create(
         storage,
         config=build_virtual_chunk_container_config(),
         authorize_virtual_chunk_access=virtual_chunk_credentials(),
     )
-    if creating:
-        repo.save_config()
+    repo.save_config()
     return repo
 
 
