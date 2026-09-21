@@ -15,6 +15,7 @@ from typing import Any
 import icechunk
 import numpy as np
 import xarray as xr
+import zarr
 
 from ohw26_oisst_icechunk import sources
 
@@ -122,7 +123,7 @@ def open_group(session: icechunk.Session, group: str) -> xr.Dataset | None:
         return xr.open_zarr(
             session.store, group=group, consolidated=False, zarr_format=3
         )
-    except Exception:  # noqa: BLE001  # pylint: disable=broad-exception-caught
+    except zarr.errors.GroupNotFoundError:
         return None
 
 

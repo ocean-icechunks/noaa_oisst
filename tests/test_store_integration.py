@@ -158,6 +158,27 @@ def test_rollup_catch_up_is_idempotent(repo: icechunk.Repository) -> None:
     assert again == []
 
 
+def test_open_group_returns_none_for_missing_group(
+    repo: icechunk.Repository,
+) -> None:
+    session = repo.readonly_session("main")
+    assert store.open_group(session, config.DAILY_GROUP) is None
+
+
+class _RaisingSession:
+    """Stub session whose ``.store`` raises a non-"group missing" error."""
+
+    @property
+    def store(self) -> object:
+        msg = "permission denied"
+        raise PermissionError(msg)
+
+
+def test_open_group_propagates_non_group_not_found_errors() -> None:
+    with pytest.raises(PermissionError, match="permission denied"):
+        store.open_group(_RaisingSession(), config.DAILY_GROUP)  # type: ignore[arg-type]
+
+
 def test_store_target_requires_exactly_one_destination() -> None:
     with pytest.raises(ValueError, match="Exactly one"):
         store.StoreTarget()
