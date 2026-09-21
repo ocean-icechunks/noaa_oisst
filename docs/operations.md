@@ -11,8 +11,12 @@ do the missing work_. This means:
 
 - **Any command can be killed and re-run.** Commits are atomic; an interrupted
   run leaves a valid store that the next run picks up from.
-- **A failed or skipped scheduled run needs no retry policy.** The next run does
-  the same diff and catches up automatically.
+- **A failed or skipped scheduled run needs no retry policy** — _while the
+  missing days are still inside the `--scan-months` window_: the next run does
+  the same diff and catches up automatically. If a day falls out of that
+  trailing window before it's ingested, `ingest-recent` refuses to append past
+  the resulting hole and fails the job instead (see "Failure modes" below); the
+  fix is `backfill-daily --start <tail+1>`.
 - **Re-running when there is nothing to do is a no-op** - commands report
   "Nothing to do." and create no commit.
 
@@ -20,13 +24,13 @@ do the missing work_. This means:
 
 Every command takes exactly one storage target, as CLI options or env vars:
 
-| Option          | Env var             | Target                                                                  |
-| --------------- | ------------------- | ----------------------------------------------------------------------- |
-| `--store-path`  | `OISST_STORE_PATH`  | Local Icechunk store directory                                          |
-| `--s3-bucket`   | `OISST_S3_BUCKET`   | S3 bucket (with the options below)                                      |
-| `--s3-prefix`   | `OISST_S3_PREFIX`   | Key prefix, default `oisst`                                             |
-| `--s3-region`   | `OISST_S3_REGION`   | Bucket region, default `us-east-1`                                      |
-| `--s3-endpoint` | `OISST_S3_ENDPOINT` | Custom endpoint (e.g. Source.coop)                                      |
+| Option          | Env var             | Target                                                                   |
+| --------------- | ------------------- | ------------------------------------------------------------------------ |
+| `--store-path`  | `OISST_STORE_PATH`  | Local Icechunk store directory                                           |
+| `--s3-bucket`   | `OISST_S3_BUCKET`   | S3 bucket (with the options below)                                       |
+| `--s3-prefix`   | `OISST_S3_PREFIX`   | Key prefix, default `oisst`                                              |
+| `--s3-region`   | `OISST_S3_REGION`   | Bucket region, default `us-east-1`                                       |
+| `--s3-endpoint` | `OISST_S3_ENDPOINT` | Custom endpoint (e.g. Source.coop)                                       |
 | `--s3-acl`      | `OISST_S3_ACL`      | Canned ACL on writes, default bucket-owner-full-control; `none` disables |
 
 Flags for local work, env vars in Actions.
@@ -62,8 +66,20 @@ optionally `OISST_S3_PREFIX` / `OISST_S3_REGION` / `OISST_S3_ENDPOINT` /
 
 Best-effort cron is fine by design: `on: schedule` fires only from the default
 branch, runs late under load, and GitHub disables it after 60 days of repo
-inactivity. None of that matters, the next run diffs and catches up. If the
-schedule got disabled, re-enable it from the Actions tab.
+inactivity. None of that matters for a short gap — the next run diffs and
+catches up. If the schedule got disabled, re-enable it from the Actions tab; if
+it was disabled long enough that the store's tail has fallen outside
+`ingest-recent`'s trailing `--scan-months` window, the next run's first
+available day won't be contiguous with the tail, so it fails with
+`ERROR: ... missing ...` instead of silently leaving a hole — repair with
+`backfill-daily` over the gap (see "Failure modes" below).
+
+**Backfilling a hole from the Actions tab.** `daily.yml` also takes
+`workflow_dispatch` inputs `start` and `end` (both `YYYY-MM-DD`, `end`
+optional). Leave both empty for a normal manual run (same as the schedule:
+`ingest-recent`). Set `start` (and optionally `end`) to switch that run to
+`backfill-daily --start <start> [--end <end>]` instead — e.g. to repair the hole
+named in an `ingest-recent` `ERROR: ... missing ...` failure.
 
 ## Manual commands
 
@@ -74,7 +90,7 @@ copy.
 # What's in the store right now (day range, preliminary window, months)
 pixi run oisst status
 
-# Catch up daily data over the trailing months (what the Action runs)
+# Catch up daily data over the trailing months (what the scheduled Action runs)
 pixi run oisst ingest-recent --scan-months 2
 
 # Backfill a date range, committing per month (initial load / gap repair)
@@ -119,6 +135,16 @@ that window.
   `ingest-recent`: a day appeared at NOAA that predates the store's newest day
   and isn't in the store. Appending it would break calendar order, so it is
   skipped. Repair with `backfill-daily` over a range covering the gap.
+- **`ERROR: store tail is ... missing ...`** (exit 1) from `ingest-recent` /
+  `backfill-daily`: the first day NOAA has available is _after_ the store's
+  tail, with a gap of one or more days NOAA doesn't have yet in between.
+  Appending past the hole would leave `daily/` permanently non-contiguous, so
+  the run refuses and fails visibly instead. This is expected right after an
+  outage at NOAA; the run keeps failing (harmlessly — the swap step still runs)
+  until NOAA backfills the missing day(s), at which point the very next run
+  appends normally. To force it sooner, or if the day(s) will never appear at
+  that URL, run the recovery command the error prints:
+  `oisst backfill-daily --start <tail+1>`.
 - **A workflow run fails outright** (network, NOAA outage, runner death): do
   nothing. Commits are atomic, so the store is valid; tomorrow's run catches up.
   Re-run manually via `workflow_dispatch` only if you're impatient.

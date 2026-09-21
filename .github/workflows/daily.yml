@@ -6,6 +6,18 @@ name: Daily update
 
 on:
   workflow_dispatch:
+    inputs:
+      start:
+        description: >-
+          First day to backfill, YYYY-MM-DD. Set this (and optionally end) to
+          switch this run from ingest-recent to backfill-daily, e.g. to repair a
+          hole reported by a failed scheduled run.
+        required: false
+        type: string
+      end:
+        description: "Last day to backfill, YYYY-MM-DD (default: today)."
+        required: false
+        type: string
   schedule:
     # NOAA publishes preliminary files a day or two after observation; exact
     # timing doesn't matter since each run catches up on whatever is new.
@@ -54,7 +66,15 @@ jobs:
           environments: default
 
       - name: Ingest recent days (append + prelim→final swaps)
+        if: inputs.start == ''
         run: pixi run oisst ingest-recent --scan-months 2
+
+      - name: Backfill a date range (manual gap repair)
+        if: inputs.start != ''
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+        run: pixi run oisst backfill-daily --start "$START" ${END:+--end "$END"}
 
       - name: Roll up ready months
         run: pixi run oisst rollup-monthly
