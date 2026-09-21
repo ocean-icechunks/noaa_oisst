@@ -1,7 +1,7 @@
 """Snapshot expiry + garbage collection.
 
 Do not enable in automation until the GC-vs-virtual-refs check in TASKS.md has been
-run against pinned icechunk 2.0.x.
+run against pinned icechunk 2.2.x.
 """
 
 from __future__ import annotations
