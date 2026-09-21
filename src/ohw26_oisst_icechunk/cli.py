@@ -62,8 +62,8 @@ def main_options(
         typer.Option(
             envvar="OISST_S3_ACL",
             help="Canned ACL on every object written (Source.coop cross-account "
-            "uploads need bucket-owner-full-control); pass an empty string to "
-            "send none.",
+            "uploads need bucket-owner-full-control); pass an empty string or "
+            "'none' to send none.",
         ),
     ] = "bucket-owner-full-control",
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
@@ -90,7 +90,7 @@ def main_options(
             s3_prefix=s3_prefix,
             s3_region=s3_region,
             s3_endpoint=s3_endpoint,
-            s3_acl=s3_acl or None,
+            s3_acl=None if s3_acl.strip().lower() in {"", "none"} else s3_acl,
         )
     except ValueError as err:
         raise typer.BadParameter(str(err)) from err

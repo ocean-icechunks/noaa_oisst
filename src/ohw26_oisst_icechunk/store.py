@@ -50,7 +50,8 @@ class StoreTarget:
         header (via Icechunk's ``write_headers``) to support Source.coop
 
         It's a safe no-op for same-account writes.
-        Set ``s3_acl=None`` for non-AWS endpoints that reject the header.
+        Set ``s3_acl=None`` for non-AWS endpoints that reject the header
+        (the CLI accepts ``--s3-acl none`` or an empty string for this).
         """
         if self.local_path is not None:
             return icechunk.local_filesystem_storage(str(self.local_path))

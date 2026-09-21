@@ -48,6 +48,24 @@ def test_empty_s3_acl_flag_disables_the_header(monkeypatch: pytest.MonkeyPatch) 
     assert target.s3_acl is None
 
 
+def test_none_s3_acl_flag_disables_the_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    target = _captured_target(monkeypatch, ["--s3-bucket", "b", "--s3-acl", "none"])
+    assert target.s3_acl is None
+
+
+def test_none_s3_acl_flag_is_case_insensitive(monkeypatch: pytest.MonkeyPatch) -> None:
+    target = _captured_target(monkeypatch, ["--s3-bucket", "b", "--s3-acl", "None"])
+    assert target.s3_acl is None
+
+
+def test_none_s3_acl_env_var_disables_the_header(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OISST_S3_ACL", "none")
+    target = _captured_target(monkeypatch, ["--s3-bucket", "b"])
+    assert target.s3_acl is None
+
+
 class _FakeRepo:
     """Stand-in repo: only ``readonly_session`` is ever called in this test."""
 

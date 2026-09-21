@@ -27,7 +27,7 @@ Every command takes exactly one storage target, as CLI options or env vars:
 | `--s3-prefix`   | `OISST_S3_PREFIX`   | Key prefix, default `oisst`                                             |
 | `--s3-region`   | `OISST_S3_REGION`   | Bucket region, default `us-east-1`                                      |
 | `--s3-endpoint` | `OISST_S3_ENDPOINT` | Custom endpoint (e.g. Source.coop)                                      |
-| `--s3-acl`      | `OISST_S3_ACL`      | Canned ACL on writes, default bucket-owner-full-control; empty disables |
+| `--s3-acl`      | `OISST_S3_ACL`      | Canned ACL on writes, default bucket-owner-full-control; `none` disables |
 
 Flags for local work, env vars in Actions.
 
