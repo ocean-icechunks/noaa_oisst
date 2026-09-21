@@ -250,7 +250,7 @@ def status(ctx: typer.Context) -> None:
     if state:
         days = sorted(state)
         prelim = [d for d, flag in state.items() if flag]
-        monotonic = "yes"
+        monotonic = "yes" if daily.is_calendar_ordered(list(state)) else "NO"
         typer.echo(
             f"daily/    {len(days)} days  {days[0]:%Y-%m-%d}..{days[-1]:%Y-%m-%d}  "
             f"preliminary: {len(prelim)}  calendar-ordered: {monotonic}"

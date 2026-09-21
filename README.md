@@ -152,6 +152,7 @@ day in a month is final.
   missing-chunk error on a day still marked preliminary means you caught that
   ~24-hour window — re-read, or use `.sel(preliminary=False)`.
 - **Time is calendar-ordered** in both groups; no `.sortby("time")` needed.
+  `oisst status` verifies `daily/`'s order and flags it if it's ever not.
 - **Library versions matter.** These stores are written with the
   `icechunk`/`virtualizarr` versions pinned in `pyproject.toml`; Icechunk spec
   changes across majors may require migration.

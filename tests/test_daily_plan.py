@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from ohw26_oisst_icechunk.daily import plan_daily_work
+from ohw26_oisst_icechunk.daily import is_calendar_ordered, plan_daily_work
 
 
 def test_empty_store_appends_everything_in_order() -> None:
@@ -108,3 +108,23 @@ def test_no_work_is_falsy() -> None:
     )
     assert not work
     assert not plan_daily_work({}, set(), set())
+
+
+# --- is_calendar_ordered -------------------------------------------------------
+
+
+def test_is_calendar_ordered_true_for_strictly_increasing_days() -> None:
+    assert is_calendar_ordered([date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3)])
+
+
+def test_is_calendar_ordered_false_for_out_of_order_days() -> None:
+    assert not is_calendar_ordered([date(2024, 1, 2), date(2024, 1, 1)])
+
+
+def test_is_calendar_ordered_false_for_duplicate_days() -> None:
+    assert not is_calendar_ordered([date(2024, 1, 1), date(2024, 1, 1)])
+
+
+def test_is_calendar_ordered_true_for_empty_or_single_day() -> None:
+    assert is_calendar_ordered([])
+    assert is_calendar_ordered([date(2024, 1, 1)])

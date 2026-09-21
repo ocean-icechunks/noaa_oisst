@@ -11,10 +11,8 @@ from __future__ import annotations
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import (
-    date,
-    timedelta,
-)
+from datetime import date, timedelta
+from itertools import pairwise
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -22,6 +20,8 @@ import xarray as xr
 import zarr
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     import icechunk
 
 from ohw26_oisst_icechunk import config, sources, store
@@ -140,6 +140,11 @@ def plan_daily_work(
         append = []
 
     return DailyWork(append=append, swap=swap, skipped_gaps=skipped, missing=missing)
+
+
+def is_calendar_ordered(days: Sequence[date]) -> bool:
+    """Whether ``days`` is strictly increasing (no ties, no inversions)."""
+    return all(a < b for a, b in pairwise(days))
 
 
 def store_days_state(session: icechunk.Session) -> dict[date, bool]:
