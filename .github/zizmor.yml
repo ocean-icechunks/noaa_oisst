@@ -2,6 +2,8 @@
 rules:
   unpinned-uses:
     config:
-      # Feel free to switch to hash pinning, then this can be removed.
       policies:
-        "*": ref-pin
+        # codecov/codecov-action@v7 is < 7 days old (actions-up cooldown), so
+        # it's not yet hash-pinned. Remove this exception once it is.
+        "codecov/codecov-action": ref-pin
+        "*": hash-pin

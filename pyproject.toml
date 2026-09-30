@@ -192,9 +192,13 @@ messages_control.disable = [
   "wrong-import-position",
 ]
 
+[tool.uv]
+exclude-newer = "3 days"
+
 [tool.pixi.workspace]
 channels = ["conda-forge"]
 platforms = ["osx-arm64", "linux-64", "linux-aarch64"]
+exclude-newer = "3d"
 
 [tool.pixi.dependencies]
 python = ">=3.12,<3.14"
