@@ -64,17 +64,32 @@ The workflow **skips itself** unless the `OISST_S3_BUCKET` repository variable
 is set, so the schedule is safe to have enabled before the Stage 2 destination
 exists. Configuring production = setting the repo variables (`OISST_S3_BUCKET`,
 optionally `OISST_S3_PREFIX` / `OISST_S3_REGION` / `OISST_S3_ENDPOINT` /
-`OISST_S3_ACL`, and `OISST_AWS_ROLE_ARN` for OIDC) — no workflow edits.
+`OISST_S3_ACL`, and `OISST_STATUS_ISSUE` for the status issue below), plus the
+`OISST_AWS_ROLE_ARN` repository _secret_ for OIDC — no workflow edits.
+
+**Status reporting.** Every run ends with `oisst status --format markdown`,
+written to the run's step summary (always). A second job, `report`, also
+rewrites the body of a pinned GitHub issue with the last run's result and that
+same status (day/month counts, preliminary window, months ready to roll up). To
+enable it: create an issue, pin it, and set the `OISST_STATUS_ISSUE` repository
+variable to its number. When the variable is unset the job skips the issue
+update; the step summary is unaffected. Edits to the issue body are overwritten
+on the next run.
 
 Best-effort cron is fine by design: `on: schedule` fires only from the default
 branch, runs late under load, and GitHub disables it after 60 days of repo
-inactivity. None of that matters for a short gap — the next run diffs and
-catches up. If the schedule got disabled, re-enable it from the Actions tab; if
-it was disabled long enough that the store's tail has fallen outside
-`ingest-recent`'s trailing `--scan-months` window, the next run's first
-available day won't be contiguous with the tail, so it fails with
-`ERROR: ... missing ...` instead of silently leaving a hole — repair with
-`backfill-daily` over the gap (see "Failure modes" below).
+inactivity. The `report` job re-enables the workflow on every run as a
+keepalive, which resets that clock (GitHub doesn't document this, but it's what
+keepalive-workflow v2 relies on), so the schedule should only lapse if runs stop
+entirely (e.g. a broken workflow for 60 days). Issue activity doesn't count as
+repo activity, so the status issue alone wouldn't keep it alive. None of that
+matters for a short gap — the next run diffs and catches up. If the schedule did
+get disabled, re-enable it from the Actions tab; if it was disabled long enough
+that the store's tail has fallen outside `ingest-recent`'s trailing
+`--scan-months` window, the next run's first available day won't be contiguous
+with the tail, so it fails with `ERROR: ... missing ...` instead of silently
+leaving a hole — repair with `backfill-daily` over the gap (see "Failure modes"
+below).
 
 **Backfilling a hole from the Actions tab.** `daily.yml` also takes
 `workflow_dispatch` inputs `start` and `end` (both `YYYY-MM-DD`, `end`
@@ -179,4 +194,4 @@ that window.
 `maintenance.yml`, which run on `schedule`/`workflow_dispatch` — triggers forks
 cannot fire. Preferred mechanism is GitHub OIDC (`id-token: write` +
 `aws-actions/configure-aws-credentials` with the role in the
-`OISST_AWS_ROLE_ARN` repo variable); no long-lived keys.
+`OISST_AWS_ROLE_ARN` repo secret); no long-lived keys.
