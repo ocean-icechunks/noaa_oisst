@@ -1,0 +1,9 @@
+# Configuration for zizmor (https://docs.zizmor.sh)
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        # codecov/codecov-action@v7 is < 7 days old (actions-up cooldown), so
+        # it's not yet hash-pinned. Remove this exception once it is.
+        "codecov/codecov-action": ref-pin
+        "*": hash-pin

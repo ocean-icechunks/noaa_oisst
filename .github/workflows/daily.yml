@@ -1,0 +1,157 @@
+name: Daily update
+
+# Ingest new/final days and roll up ready months. Best-effort by design: every
+# command diffs the store and does only the missing work, so a failed or
+# skipped run needs no retry — the next run catches up. Every run also writes
+# the store status to the step summary and (if OISST_STATUS_ISSUE is set) to a
+# pinned issue, and re-enables this workflow so GitHub's 60-day inactivity rule
+# never disables the schedule. See docs/operations.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: >-
+          First day to backfill, YYYY-MM-DD. Set this (and optionally end) to
+          switch this run from ingest-recent to backfill-daily, e.g. to repair a
+          hole reported by a failed scheduled run.
+        required: false
+        type: string
+      end:
+        description: "Last day to backfill, YYYY-MM-DD (default: today)."
+        required: false
+        type: string
+  schedule:
+    # NOAA publishes preliminary files a day or two after observation; exact
+    # timing doesn't matter since each run catches up on whatever is new.
+    - cron: "30 3,9,15,21 * * *"
+
+permissions: {}
+
+# Exactly one writer against the store, ever. Queued runs wait; nothing is
+# cancelled mid-commit.
+concurrency:
+  group: oisst-store
+  cancel-in-progress: false
+
+env:
+  FORCE_COLOR: 3
+
+jobs:
+  update:
+    name: Ingest + rollup
+    runs-on: ubuntu-latest
+    if: vars.OISST_S3_BUCKET != ''
+    timeout-minutes: 60
+    outputs:
+      status: ${{ steps.status.outputs.markdown }}
+    permissions:
+      contents: read
+      id-token: write # OIDC for aws-actions/configure-aws-credentials
+    env:
+      OISST_S3_BUCKET: ${{ vars.OISST_S3_BUCKET }}
+      OISST_S3_PREFIX: ${{ vars.OISST_S3_PREFIX || 'oisst' }}
+      OISST_S3_REGION: ${{ vars.OISST_S3_REGION || 'us-east-1' }}
+      OISST_S3_ENDPOINT: ${{ vars.OISST_S3_ENDPOINT || '' }}
+      OISST_S3_ACL: ${{ vars.OISST_S3_ACL || 'bucket-owner-full-control' }}
+      # secrets can't be read in a step `if:`; expose only a boolean
+      HAS_AWS_ROLE: ${{ secrets.OISST_AWS_ROLE_ARN != '' }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        if: env.HAS_AWS_ROLE == 'true'
+        with:
+          role-to-assume: ${{ secrets.OISST_AWS_ROLE_ARN }}
+          aws-region: ${{ vars.OISST_S3_REGION || 'us-east-1' }}
+
+      - uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
+        with:
+          environments: default
+
+      - name: Ingest recent days (append + prelim→final swaps)
+        if: inputs.start == ''
+        run: pixi run oisst ingest-recent --scan-months 2
+
+      - name: Backfill a date range (manual gap repair)
+        if: inputs.start != ''
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+        run: pixi run oisst backfill-daily --start "$START" ${END:+--end "$END"}
+
+      - name: Roll up ready months
+        run: pixi run oisst rollup-monthly
+
+      # Runs even after a failed ingest so the summary/issue still show where the
+      # store stands (it can still fail itself if the store is unreachable).
+      - name: Store status
+        id: status
+        if: always()
+        run: |
+          # Redirect rather than pipe through tee: the default shell has no
+          # pipefail, so a failing status would otherwise pass.
+          pixi run oisst status --format markdown > status.md
+          cat status.md
+          cat status.md >> "$GITHUB_STEP_SUMMARY"
+          delimiter="EOF_$(openssl rand -hex 16)"
+          {
+            echo "markdown<<$delimiter"
+            cat status.md
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+
+  report:
+    name: Report status
+    runs-on: ubuntu-latest
+    needs: update
+    if: always() && vars.OISST_S3_BUCKET != ''
+    timeout-minutes: 5
+    permissions:
+      actions: write # re-enable this workflow (keepalive)
+      issues: write # edit the status issue
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      # GitHub disables scheduled workflows in public repos after 60 days
+      # without repo activity. Re-enabling an already-enabled workflow resets
+      # that clock (undocumented, but what keepalive-workflow v2 relies on), so
+      # every run keeps the schedule alive. See docs/operations.md.
+      - name: Keepalive (re-enable this workflow)
+        run:
+          gh api -X PUT
+          "repos/$GITHUB_REPOSITORY/actions/workflows/daily.yml/enable"
+
+      - name: Update status issue
+        if: vars.OISST_STATUS_ISSUE != ''
+        env:
+          ISSUE: ${{ vars.OISST_STATUS_ISSUE }}
+          RESULT: ${{ needs.update.result }}
+          EVENT: ${{ github.event_name }}
+          STATUS_MD: ${{ needs.update.outputs.status }}
+        run: |
+          case "$RESULT" in
+            success) icon="✅" ;;
+            failure) icon="❌" ;;
+            *) icon="⚠️" ;;
+          esac
+          {
+            echo "## OISST store status"
+            echo
+            echo "- Last run: $icon $RESULT ([run $GITHUB_RUN_ID]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID))"
+            echo "- Updated: $(date -u '+%Y-%m-%d %H:%M UTC') (trigger: $EVENT)"
+            echo
+            if [ -n "$STATUS_MD" ]; then
+              printf '%s\n' "$STATUS_MD"
+            else
+              echo "_Status unavailable — see run log._"
+            fi
+            echo
+            echo "---"
+            echo "_This issue is updated automatically by \`daily.yml\`; manual edits will be overwritten._"
+          } > body.md
+          gh issue edit "$ISSUE" --repo "$GITHUB_REPOSITORY" --body-file body.md

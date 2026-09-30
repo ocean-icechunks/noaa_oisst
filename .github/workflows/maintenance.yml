@@ -1,0 +1,68 @@
+name: Maintenance
+
+# Snapshot expiry + garbage collection — manual-dispatch only, dry-run by
+# default. Do NOT add a schedule (or run for real against production) until the
+# GC-vs-virtual-references check in TASKS.md has passed on a throwaway copy of
+# the store against pinned icechunk 2.0.x: GC is the one genuinely destructive
+# operation in this pipeline. Moot entirely if Stage 2 lands on Arraylake's
+# managed GC. See docs/operations.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Report what would be collected without deleting
+        type: boolean
+        default: true
+      days:
+        description: Retention window in days
+        type: string
+        default: "35"
+
+permissions: {}
+
+concurrency:
+  group: oisst-store
+  cancel-in-progress: false
+
+env:
+  FORCE_COLOR: 3
+
+jobs:
+  expire:
+    name: Expire + GC
+    runs-on: ubuntu-latest
+    if: vars.OISST_S3_BUCKET != ''
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write # OIDC for aws-actions/configure-aws-credentials
+    env:
+      OISST_S3_BUCKET: ${{ vars.OISST_S3_BUCKET }}
+      OISST_S3_PREFIX: ${{ vars.OISST_S3_PREFIX || 'oisst' }}
+      OISST_S3_REGION: ${{ vars.OISST_S3_REGION || 'us-east-1' }}
+      OISST_S3_ENDPOINT: ${{ vars.OISST_S3_ENDPOINT }}
+      OISST_S3_ACL: ${{ vars.OISST_S3_ACL || 'bucket-owner-full-control' }}
+      # secrets can't be read in a step `if:`; expose only a boolean
+      HAS_AWS_ROLE: ${{ secrets.OISST_AWS_ROLE_ARN != '' }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        if: env.HAS_AWS_ROLE == 'true'
+        with:
+          role-to-assume: ${{ secrets.OISST_AWS_ROLE_ARN }}
+          aws-region: ${{ vars.OISST_S3_REGION || 'us-east-1' }}
+
+      - uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
+        with:
+          environments: default
+
+      - name: Expire snapshots + garbage collect
+        env:
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+          DAYS: ${{ inputs.days }}
+        run: pixi run oisst expire --days "$DAYS" "$DRY_RUN"
