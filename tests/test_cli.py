@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import date
 from typing import TYPE_CHECKING
 
+import numpy as np
 from typer.testing import CliRunner
 
 from ohw26_oisst_icechunk import cli, config, daily, rollup, sources, store
@@ -136,6 +137,80 @@ def test_backfill_daily_without_create_exits_1_on_missing_store(
     assert result.exit_code == 1
     assert "ERROR" in result.output
     assert "backfill-daily --create" in result.output
+
+
+def _fake_populated_store(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Jan 2024 complete+final (ready), Feb 2024 partial with 2 prelim days."""
+    state = {date(2024, 1, d): False for d in range(1, 32)}
+    state |= {date(2024, 2, 1): False, date(2024, 2, 2): True, date(2024, 2, 3): True}
+    monkeypatch.setattr(
+        store,
+        "open_repo",
+        lambda target, create=False: _FakeRepo(),  # noqa: ARG005
+    )
+    monkeypatch.setattr(daily, "store_days_state", lambda session: state)  # noqa: ARG005
+    monkeypatch.setattr(
+        store,
+        "group_times",
+        lambda session, group: np.array(["2023-11-01", "2023-12-01"], "datetime64[ns]"),  # noqa: ARG005
+    )
+
+
+def test_status_text_output_is_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_populated_store(monkeypatch)
+
+    result = runner.invoke(cli.app, ["--store-path", "/x", "status"])
+
+    assert result.exit_code == 0
+    assert result.output == (
+        "daily/    34 days  2024-01-01..2024-02-03  "
+        "preliminary: 2  calendar-ordered: yes\n"
+        "          preliminary days: 2024-02-02..2024-02-03\n"
+        "monthly/  2 months  2023-11..2023-12\n"
+    )
+
+
+def test_status_markdown_on_a_populated_store(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _fake_populated_store(monkeypatch)
+
+    result = runner.invoke(
+        cli.app, ["--store-path", "/x", "status", "--format", "markdown"]
+    )
+
+    assert result.exit_code == 0
+    lines = result.output.splitlines()
+    assert lines[0] == "### Store status"
+    assert "| `daily/` | 34 days | 2024-01-01 to 2024-02-03 |" in lines
+    assert "| `monthly/` | 2 months | 2023-11 to 2023-12 |" in lines
+    assert "- Preliminary days: 2 (2024-02-02 to 2024-02-03)" in lines
+    assert "- Calendar-ordered: yes" in lines
+    assert "- Ready to roll up, not yet in `monthly/`: 2024-01" in lines
+
+
+def test_status_markdown_on_an_empty_store(tmp_path: Path) -> None:
+    store.open_repo(store.StoreTarget(local_path=tmp_path / "s"), create=True)
+
+    result = runner.invoke(
+        cli.app,
+        ["--store-path", str(tmp_path / "s"), "status", "--format", "markdown"],
+    )
+
+    assert result.exit_code == 0
+    lines = result.output.splitlines()
+    assert "| `daily/` | 0 | (empty) |" in lines
+    assert "| `monthly/` | 0 | (empty) |" in lines
+    assert "- Preliminary days: 0" in lines
+    assert "- Ready to roll up, not yet in `monthly/`: none" in lines
+
+
+def test_status_rejects_an_unknown_format() -> None:
+    result = runner.invoke(
+        cli.app, ["--store-path", "/x", "status", "--format", "html"]
+    )
+
+    assert result.exit_code == 2
 
 
 def test_rollup_monthly_continues_after_one_month_fails(

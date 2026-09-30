@@ -12,15 +12,20 @@ from __future__ import annotations
 
 import logging
 import warnings
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from enum import StrEnum
 from pathlib import Path  # noqa: TC003 - typer needs it at runtime
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import icechunk
 import typer
 import xarray as xr
 
 from ohw26_oisst_icechunk import config, daily, maintenance, rollup, sources, store
+
+if TYPE_CHECKING:
+    import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -265,17 +270,56 @@ def expire(
     typer.echo(str(summary))
 
 
-@app.command()
-def status(ctx: typer.Context) -> None:
-    """Summarize the store's state (day counts, preliminary window, months)."""
-    repo = _open_repo(ctx.obj)
-    session = repo.readonly_session("main")
+class StatusFormat(StrEnum):
+    """Output formats for ``oisst status``."""
 
-    state = daily.store_days_state(session)
-    if state:
-        days = sorted(state)
-        prelim = [d for d, flag in state.items() if flag]
-        monotonic = "yes" if daily.is_calendar_ordered(list(state)) else "NO"
+    TEXT = "text"
+    MARKDOWN = "markdown"
+
+
+@dataclass(frozen=True)
+class _StoreStatus:
+    """What ``status`` reports, gathered once and rendered either way."""
+
+    days: dict[date, bool]
+    monthly_times: np.ndarray | None
+    ready: list[date]
+
+    @property
+    def months(self) -> np.ndarray | None:
+        """Monthly timestamps at month precision (None when monthly/ is empty)."""
+        if self.monthly_times is None or self.monthly_times.size == 0:
+            return None
+        return self.monthly_times.astype("datetime64[M]")
+
+    @property
+    def preliminary(self) -> list[date]:
+        """Days still flagged preliminary."""
+        return [d for d, flag in self.days.items() if flag]
+
+    @property
+    def calendar_ordered(self) -> bool:
+        """Whether daily/ is in calendar order."""
+        return daily.is_calendar_ordered(list(self.days))
+
+
+def _gather_status(session: icechunk.Session) -> _StoreStatus:
+    """Read the store state shared by both status renderings."""
+    days = daily.store_days_state(session)
+    monthly_times = store.group_times(session, config.MONTHLY_GROUP)
+    return _StoreStatus(
+        days=days,
+        monthly_times=monthly_times,
+        ready=rollup.months_ready(days, monthly_times),
+    )
+
+
+def _echo_status_text(summary: _StoreStatus) -> None:
+    """Plain-text status, one line per group."""
+    if summary.days:
+        days = sorted(summary.days)
+        prelim = summary.preliminary
+        monotonic = "yes" if summary.calendar_ordered else "NO"
         typer.echo(
             f"daily/    {len(days)} days  {days[0]:%Y-%m-%d}..{days[-1]:%Y-%m-%d}  "
             f"preliminary: {len(prelim)}  calendar-ordered: {monotonic}"
@@ -287,12 +331,71 @@ def status(ctx: typer.Context) -> None:
     else:
         typer.echo("daily/    (empty)")
 
-    monthly_times = store.group_times(session, config.MONTHLY_GROUP)
-    if monthly_times is not None and len(monthly_times):
-        months = monthly_times.astype("datetime64[M]")
+    months = summary.months
+    if months is not None:
         typer.echo(f"monthly/  {len(months)} months  {months.min()}..{months.max()}")
     else:
         typer.echo("monthly/  (empty)")
+
+
+def _echo_status_markdown(summary: _StoreStatus) -> None:
+    """GitHub-flavored markdown status, for step summaries and issue bodies."""
+    lines = [
+        "### Store status",
+        "",
+        "| Group | Count | Range |",
+        "| --- | ---: | --- |",
+    ]
+    if summary.days:
+        days = sorted(summary.days)
+        lines.append(
+            f"| `daily/` | {len(days)} days | {days[0]:%Y-%m-%d} to {days[-1]:%Y-%m-%d} |"
+        )
+    else:
+        lines.append("| `daily/` | 0 | (empty) |")
+    months = summary.months
+    if months is not None:
+        lines.append(
+            f"| `monthly/` | {len(months)} months | {months.min()} to {months.max()} |"
+        )
+    else:
+        lines.append("| `monthly/` | 0 | (empty) |")
+
+    lines.append("")
+    prelim = summary.preliminary
+    if prelim:
+        lines.append(
+            f"- Preliminary days: {len(prelim)} "
+            f"({min(prelim):%Y-%m-%d} to {max(prelim):%Y-%m-%d})"
+        )
+    else:
+        lines.append("- Preliminary days: 0")
+    if summary.days:
+        ordered = "yes" if summary.calendar_ordered else "**NO**"
+        lines.append(f"- Calendar-ordered: {ordered}")
+    pending = ", ".join(f"{m:%Y-%m}" for m in summary.ready) or "none"
+    lines.append(f"- Ready to roll up, not yet in `monthly/`: {pending}")
+    typer.echo("\n".join(lines))
+
+
+@app.command()
+def status(
+    ctx: typer.Context,
+    output_format: Annotated[
+        StatusFormat,
+        typer.Option(
+            "--format",
+            help="'markdown' emits a GitHub-flavored section for step summaries.",
+        ),
+    ] = StatusFormat.TEXT,
+) -> None:
+    """Summarize the store's state (day counts, preliminary window, months)."""
+    repo = _open_repo(ctx.obj)
+    gathered = _gather_status(repo.readonly_session("main"))
+    if output_format is StatusFormat.MARKDOWN:
+        _echo_status_markdown(gathered)
+    else:
+        _echo_status_text(gathered)
 
 
 def main() -> None:

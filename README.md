@@ -171,7 +171,7 @@ See [docs/operations.md](docs/operations.md) for the runbook and
 pixi run oisst ingest-recent  --scan-months 2   # what the scheduled Action runs
 pixi run oisst rollup-monthly                   # catches up by default
 pixi run oisst expire         --days 35
-pixi run oisst status
+pixi run oisst status                           # --format markdown for GitHub
 ```
 
 Every command diffs against what is already in the store and does only the

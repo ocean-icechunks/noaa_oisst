@@ -105,7 +105,8 @@ copy. `status`, `expire`, and `rollup-monthly` require an existing store and
 exit 1 (see "First-time setup" above) if there isn't one yet.
 
 ```bash
-# What's in the store right now (day range, preliminary window, months)
+# What's in the store right now (day range, preliminary window, months);
+# add --format markdown for the GitHub step-summary/issue version
 pixi run oisst status
 
 # Catch up daily data over the trailing months (what the scheduled Action runs)
