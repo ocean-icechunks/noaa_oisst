@@ -71,7 +71,7 @@ repos:
   #     - id: disallow-caps
   #       name: Disallow improper capitalization
   #       language: pygrep
-  #       entry: PyBind|Numpy|Cmake|CCache|Github|PyTest|OISST|NOAA|OISST_S3_BUCKET|OISST_S3_PREFIX|OISST_S3_REGION|OISST_S3_ENDPOINT|OISST_S3_ACL|OISST_AWS_ROLE_ARN
+  #       entry: PyBind|Numpy|Cmake|CCache|Github|PyTest|OISST|NOAA|OISST_S3_BUCKET|OISST_S3_PREFIX|OISST_S3_REGION|OISST_S3_ENDPOINT|OISST_S3_ACL|SOURCE_COOP_SERVICE_ACCOUNT
   #       exclude: .pre-commit-config.yaml
 
   - repo: https://github.com/henryiii/validate-pyproject-schema-store/

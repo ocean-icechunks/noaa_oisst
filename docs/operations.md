@@ -60,12 +60,15 @@ One writer, always: the workflow uses
 commit-conflict handling anywhere in the code — do not run a second writer
 against the production store while a workflow run is active.
 
-The workflow **skips itself** unless the `OISST_S3_BUCKET` repository variable
-is set, so the schedule is safe to have enabled before the Stage 2 destination
-exists. Configuring production = setting the repo variables (`OISST_S3_BUCKET`,
-optionally `OISST_S3_PREFIX` / `OISST_S3_REGION` / `OISST_S3_ENDPOINT` /
-`OISST_S3_ACL`, and `OISST_STATUS_ISSUE` for the status issue below), plus the
-`OISST_AWS_ROLE_ARN` repository _secret_ for OIDC — no workflow edits.
+The workflow **skips itself** unless both the `OISST_S3_BUCKET` and
+`SOURCE_COOP_SERVICE_ACCOUNT` repository variables are set, so the schedule is
+safe to have enabled before the Stage 2 destination exists. Configuring
+production = setting the repo variables (`OISST_S3_BUCKET=ocean-icechunks`,
+`OISST_S3_PREFIX=noaa-oisst/oisst.icechunk`, `SOURCE_COOP_SERVICE_ACCOUNT`, and
+`OISST_STATUS_ISSUE` for the status issue below) and creating the `source-coop`
+GitHub environment (see "Credentials") — no workflow edits. `OISST_S3_ENDPOINT`
+and `OISST_S3_REGION` default to `https://data.source.coop` / `us-west-2`;
+`OISST_S3_ACL` stays overridable (set `none` if the proxy rejects `x-amz-acl`).
 
 **Status reporting.** Every run ends with `oisst status --format markdown`,
 written to the run's step summary (always). A second job, `report`, also
@@ -186,12 +189,40 @@ that window.
 - **`rollup-monthly` won't produce a month you expect**: the month has a missing
   or still-preliminary day — `oisst status` shows the preliminary window.
   Rollups only consume complete, all-final months, by design.
+- **`ExpiredToken` (403) partway through a run**: the proxy credentials expired.
+  Icechunk reads the environment credentials once and never renews them, so a
+  run longer than the credential lifetime (1 h by default) fails mid-write.
+  Commits are atomic, so the store is valid and the next run catches up. If runs
+  legitimately take longer, raise `role-duration-seconds` above the job's
+  `timeout-minutes` (max 12 h).
 
 ## Credentials
 
 `ci.yml` runs on `pull_request` with **no credentials** and must stay that way
 (zizmor lints the workflows). Credentials appear only in `daily.yml` /
 `maintenance.yml`, which run on `schedule`/`workflow_dispatch` — triggers forks
-cannot fire. Preferred mechanism is GitHub OIDC (`id-token: write` +
-`aws-actions/configure-aws-credentials` with the role in the
-`OISST_AWS_ROLE_ARN` repo secret); no long-lived keys.
+cannot fire. They sign in to a
+[Source Cooperative service account](https://docs.source.coop/automated-access)
+via GitHub OIDC (`id-token: write` + `aws-actions/configure-aws-credentials`),
+assuming `arn:aws:iam::<owner>--<name>:role/FullAccess` through Source's STS
+(`https://data.source.coop/.sts`). No secrets or long-lived keys are stored.
+
+**One-time setup:**
+
+1. Create the service account under the Source org → Service Accounts.
+2. Grant it read/write on the `noaa-oisst` product.
+3. Add a GitHub Actions trust for repo `ocean-icechunks/noaa_oisst`, environment
+   `source-coop`.
+4. Create the `source-coop` environment in GitHub, with deployment branches
+   limited to `main`.
+5. Set the `SOURCE_COOP_SERVICE_ACCOUNT` repository variable (e.g.
+   `ocean-icechunks--oisst-updates`).
+
+**Credential lifetime.** Proxy credentials last 1 h by default (up to 12 h with
+`role-duration-seconds`). Icechunk keeps the first credentials it reads
+(`from_env=True`), so a longer run fails with `ExpiredToken` (403). Both
+workflows set `role-duration-seconds: 7200`, above their `timeout-minutes`; keep
+it that way if a timeout is raised.
+
+**Emergency revoke.** In Source, remove the workflow trust (stops new sign-ins)
+or Disable the account under Danger Zone.

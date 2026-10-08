@@ -41,32 +41,40 @@ jobs:
   update:
     name: Ingest + rollup
     runs-on: ubuntu-latest
-    if: vars.OISST_S3_BUCKET != ''
+    if: vars.OISST_S3_BUCKET != '' && vars.SOURCE_COOP_SERVICE_ACCOUNT != ''
+    environment: source-coop # trust is scoped to this environment (main only)
     timeout-minutes: 60
     outputs:
       status: ${{ steps.status.outputs.markdown }}
     permissions:
       contents: read
-      id-token: write # OIDC for aws-actions/configure-aws-credentials
+      id-token: write # OIDC sign-in as the Source Coop service account
     env:
+      # No job-wide AWS_ENDPOINT_URL_S3: the CLI passes the endpoint explicitly,
+      # and a global one could route anonymous NOAA reads through the proxy.
       OISST_S3_BUCKET: ${{ vars.OISST_S3_BUCKET }}
       OISST_S3_PREFIX: ${{ vars.OISST_S3_PREFIX || 'oisst' }}
-      OISST_S3_REGION: ${{ vars.OISST_S3_REGION || 'us-east-1' }}
-      OISST_S3_ENDPOINT: ${{ vars.OISST_S3_ENDPOINT || '' }}
+      OISST_S3_REGION: ${{ vars.OISST_S3_REGION || 'us-west-2' }}
+      OISST_S3_ENDPOINT:
+        ${{ vars.OISST_S3_ENDPOINT || 'https://data.source.coop' }}
       OISST_S3_ACL: ${{ vars.OISST_S3_ACL || 'bucket-owner-full-control' }}
-      # secrets can't be read in a step `if:`; expose only a boolean
-      HAS_AWS_ROLE: ${{ secrets.OISST_AWS_ROLE_ARN != '' }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
-        if: env.HAS_AWS_ROLE == 'true'
+      - name: Sign in to Source Cooperative (service account)
+        uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
         with:
-          role-to-assume: ${{ secrets.OISST_AWS_ROLE_ARN }}
-          aws-region: ${{ vars.OISST_S3_REGION || 'us-east-1' }}
+          role-to-assume:
+            arn:aws:iam::${{ vars.SOURCE_COOP_SERVICE_ACCOUNT }}:role/FullAccess
+          audience: https://data.source.coop
+          sts-endpoint: https://data.source.coop/.sts
+          aws-region: us-west-2
+          # Icechunk keeps the first credentials it reads (no mid-run renewal);
+          # outlive timeout-minutes. See docs/operations.md#credentials.
+          role-duration-seconds: 7200
 
       - uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
         with:
@@ -108,7 +116,9 @@ jobs:
     name: Report status
     runs-on: ubuntu-latest
     needs: update
-    if: always() && vars.OISST_S3_BUCKET != ''
+    if: >-
+      always() && vars.OISST_S3_BUCKET != '' && vars.SOURCE_COOP_SERVICE_ACCOUNT
+      != ''
     timeout-minutes: 5
     permissions:
       actions: write # re-enable this workflow (keepalive)
