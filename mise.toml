@@ -1,0 +1,6 @@
+# Dev tooling, shared by the devcontainer and host checkouts.
+# The Python environments themselves come from pixi (see [tool.pixi] in pyproject.toml).
+[tools]
+pixi = "latest"
+uv = "latest"    # build backend (uv_build) and `uvx nox` for the noxfile
+prek = "latest"  # git hooks
