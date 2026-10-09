@@ -18,7 +18,7 @@ import numpy as np
 import xarray as xr
 import zarr
 
-from ohw26_oisst_icechunk import config, store
+from ohw26_oisst_icechunk import config, repair, store
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,8 @@ def monthly_statistics(ds: xr.Dataset, month: date) -> xr.Dataset:
     ``{var}_max`` / ``{var}_mean`` / ``{var}_std`` are produced by reducing over
     ``time``, then given a single new ``time`` coordinate at the month's start
     so the result can be appended along ``time`` to the monthly group.
+    Variable and group attrs are the monthly ones from ``config``; the group's
+    provenance attrs are taken from ``ds.attrs`` (the daily group's).
     """
     stats: dict[str, xr.DataArray] = {}
     for var in ds.data_vars:
@@ -50,7 +52,12 @@ def monthly_statistics(ds: xr.Dataset, month: date) -> xr.Dataset:
         stats[f"{var}_mean"] = ds[var].mean("time")
         stats[f"{var}_std"] = ds[var].std("time")
 
-    reduced = xr.Dataset(stats)
+    # Reductions inherit the daily attrs (long_name, units, valid_*), which are
+    # wrong for monthly statistics; replace them wholesale.
+    for name, arr in stats.items():
+        arr.attrs = config.monthly_variable_attrs(name)
+
+    reduced = xr.Dataset(stats, attrs=config.monthly_group_attrs(ds.attrs))
     month_ts = np.datetime64(datetime(month.year, month.month, 1))  # noqa: DTZ001
     return reduced.expand_dims(time=[month_ts])
 
@@ -158,6 +165,13 @@ def rollup_month(
         icechunk.xarray.to_icechunk(
             monthly_ds, write_session, group=config.MONTHLY_GROUP, append_dim="time"
         )
+    # xarray appends keep the variable attrs first written and region writes
+    # touch no attrs at all, so stores from before #2 would keep their stale
+    # daily-derived metadata; clean it on every write, in the same commit.
+    monthly_group = zarr.open_group(
+        write_session.store, path=config.MONTHLY_GROUP, mode="r+"
+    )
+    repair.fix_monthly_metadata(monthly_group, dict(daily.attrs))
     snapshot = write_session.commit(f"Monthly rollup for {month:%Y-%m}")
     logger.info("Committed monthly %s as snapshot %s", f"{month:%Y-%m}", snapshot)
     return snapshot

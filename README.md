@@ -110,6 +110,12 @@ Source variables are `sst`, `anom`, `err`, and `ice`, so `monthly/` carries 16
 variables (`sst_min`, `sst_max`, `sst_mean`, `sst_std`, `anom_min`, …), stored
 as `int16` with `scale_factor=0.01` to match NOAA's own precision.
 
+`monthly/` carries its own metadata: each variable has a `long_name` such as
+"Monthly maximum of daily sea ice concentration", a `cell_methods` entry, and no
+`valid_min`/`valid_max` (those describe the daily fields). Its `ice_*` variables
+have `units: "1"`. In `daily/`, `ice` keeps NOAA's `units: "%"` attribute, but
+the values are 0-1 fractions, not percentages.
+
 Reading 44 years at one point costs ~8.7 MB and 23 requests from `monthly/`.
 
 ## Preliminary vs final data

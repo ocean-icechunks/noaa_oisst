@@ -42,9 +42,13 @@ runs four times a day (03:30, 09:30, 15:30, 21:30 UTC, plus `workflow_dispatch`)
 and executes:
 
 ```bash
+pixi run oisst repair-layout
 pixi run oisst ingest-recent  --scan-months 2
 pixi run oisst rollup-monthly
 ```
+
+- `repair-layout` is idempotent. When the store is already correct it only reads
+  metadata and commits nothing. See [Layout repair](#layout-repair).
 
 - `ingest-recent` lists NOAA's trailing months, appends any new days (marked
   `preliminary=True` when only the preliminary file exists), and swaps
@@ -138,6 +142,9 @@ pixi run oisst backfill-daily --start 1981-09-01 --end 2020-12-31
 pixi run oisst rollup-monthly
 pixi run oisst rollup-monthly --month 2026-07
 
+# Fix `time` chunking and monthly metadata (idempotent; --dry-run to preview)
+pixi run oisst repair-layout --dry-run
+
 # Snapshot expiry + GC — see the warning below
 pixi run oisst expire --days 35 --dry-run
 ```
@@ -148,6 +155,21 @@ on; by default only errors from the storage layer are shown.
 On constrained networks, lower `--fetch-concurrency` / `OISST_FETCH_CONCURRENCY`
 (default 10) for `rollup-monthly` — a month's rollup is ~120 virtual-chunk
 range-reads against NOAA.
+
+## Layout repair
+
+`oisst repair-layout` brings an existing store in line with the current layout
+in a single commit: it rechunks `daily/time` and `monthly/time` from one chunk
+per step to `(4096,)` (values, dtype, codecs and attrs are copied unchanged) and
+replaces the daily attrs that `monthly/` variables had inherited (`valid_min` /
+`valid_max`, daily `long_name`s) with monthly ones, plus group attrs. Virtual
+references and data variables are not touched. It prints each change, or
+`Layout OK.` when there is nothing to do, and `--dry-run` commits nothing.
+
+`daily.yml` runs it before ingest on every run, so the first scheduled run after
+the fix is merged migrates the published store, and any later drift is repaired
+the same way. Because it commits before that run's appends, no other step needs
+to know about it.
 
 ## Expiry and garbage collection
 

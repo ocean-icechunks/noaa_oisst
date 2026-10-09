@@ -49,6 +49,13 @@ def test_virtual_append_swap_and_read_back(tmp_path: Path) -> None:
     state = daily.store_days_state(repo.readonly_session("main"))
     assert state[DAYS[1]]
 
+    # time is chunked coarsely, not one chunk per day
+    time = zarr.open_group(
+        repo.readonly_session("main").store, path=config.DAILY_GROUP, mode="r"
+    )["time"]
+    assert isinstance(time, zarr.Array)
+    assert time.chunks == config.TIME_CHUNKS
+
     # swap it to final: refs rewritten in place, flag flipped, time index unchanged
     daily.swap_to_final(repo, [DAYS[1]])
     session = repo.readonly_session("main")

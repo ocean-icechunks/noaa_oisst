@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from typer.testing import CliRunner
 
-from ohw26_oisst_icechunk import cli, config, daily, rollup, sources, store
+from ohw26_oisst_icechunk import cli, config, daily, repair, rollup, sources, store
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -255,3 +255,49 @@ def test_rollup_monthly_continues_after_one_month_fails(
     assert calls == [date(2024, 1, 1), date(2024, 2, 1)]
     assert result.exit_code == 1
     assert "boom" in result.output
+
+
+def test_repair_layout_exits_1_on_a_missing_store(tmp_path: Path) -> None:
+    result = runner.invoke(
+        cli.app, ["--store-path", str(tmp_path / "nope"), "repair-layout"]
+    )
+
+    assert result.exit_code == 1
+    assert "ERROR" in result.output
+
+
+def test_repair_layout_reports_ok_on_a_correct_store(tmp_path: Path) -> None:
+    store.open_repo(store.StoreTarget(local_path=tmp_path / "s"), create=True)
+
+    result = runner.invoke(
+        cli.app, ["--store-path", str(tmp_path / "s"), "repair-layout"]
+    )
+
+    assert result.exit_code == 0
+    assert "Layout OK." in result.output
+
+
+def test_repair_layout_echoes_changes_and_honours_dry_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[bool] = []
+
+    def fake_repair(repo: object, dry_run: bool = False) -> list[str]:  # noqa: ARG001
+        seen.append(dry_run)
+        return ["daily/time: rechunked to (4096,)"]
+
+    monkeypatch.setattr(
+        store,
+        "open_repo",
+        lambda target, create=False: _FakeRepo(),  # noqa: ARG005
+    )
+    monkeypatch.setattr(repair, "repair_layout", fake_repair)
+
+    result = runner.invoke(
+        cli.app, ["--store-path", "/x", "repair-layout", "--dry-run"]
+    )
+
+    assert result.exit_code == 0
+    assert seen == [True]
+    assert "daily/time: rechunked to (4096,)" in result.output
+    assert "Layout OK." not in result.output
