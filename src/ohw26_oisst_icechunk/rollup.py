@@ -18,7 +18,7 @@ import numpy as np
 import xarray as xr
 import zarr
 
-from ohw26_oisst_icechunk import config, store
+from ohw26_oisst_icechunk import config, repair, store
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +165,13 @@ def rollup_month(
         icechunk.xarray.to_icechunk(
             monthly_ds, write_session, group=config.MONTHLY_GROUP, append_dim="time"
         )
+    # xarray appends keep the variable attrs first written and region writes
+    # touch no attrs at all, so stores from before #2 would keep their stale
+    # daily-derived metadata; clean it on every write, in the same commit.
+    monthly_group = zarr.open_group(
+        write_session.store, path=config.MONTHLY_GROUP, mode="r+"
+    )
+    repair.fix_monthly_metadata(monthly_group, dict(daily.attrs))
     snapshot = write_session.commit(f"Monthly rollup for {month:%Y-%m}")
     logger.info("Committed monthly %s as snapshot %s", f"{month:%Y-%m}", snapshot)
     return snapshot
