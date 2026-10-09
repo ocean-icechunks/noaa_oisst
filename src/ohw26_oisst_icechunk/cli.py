@@ -22,7 +22,15 @@ import icechunk
 import typer
 import xarray as xr
 
-from ohw26_oisst_icechunk import config, daily, maintenance, rollup, sources, store
+from ohw26_oisst_icechunk import (
+    config,
+    daily,
+    maintenance,
+    repair,
+    rollup,
+    sources,
+    store,
+)
 
 if TYPE_CHECKING:
     import numpy as np
@@ -268,6 +276,24 @@ def expire(
     repo = _open_repo(ctx.obj)
     summary = maintenance.expire(repo, days=days, dry_run=dry_run)
     typer.echo(str(summary))
+
+
+@app.command(name="repair-layout")
+def repair_layout(
+    ctx: typer.Context,
+    dry_run: Annotated[
+        bool, typer.Option(help="Report what would change without committing.")
+    ] = False,
+) -> None:
+    """Fix time chunking and monthly metadata on an existing store (idempotent)."""
+    repo = _open_repo(ctx.obj)
+    changes = repair.repair_layout(repo, dry_run=dry_run)
+    if not changes:
+        typer.echo("Layout OK.")
+        return
+    prefix = "Would change" if dry_run else "Changed"
+    for change in changes:
+        typer.echo(f"{prefix}: {change}")
 
 
 class StatusFormat(StrEnum):
