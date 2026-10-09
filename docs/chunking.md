@@ -172,6 +172,23 @@ references (**measured**), about 223 KB of manifest per variable.
 The one real data array is the `preliminary` coordinate: a bool, stored as int8,
 chunked `(1024,)`, 17 chunks for the whole record (**measured**).
 
+### `time` is chunked `(4096,)`
+
+The `time` coordinate is a real array too, and opening the group reads all of
+it. Chunked one value per day (the layout it inherited from NOAA's files) it was
+16,452 chunks of 4 bytes. They are small enough to be inlined in the manifest,
+so no object-store requests are made, but reading them still costs per chunk:
+about 1.3 s in memory for 16,452 inlined one-value chunks, against ~0 s for the
+same array chunked `(4096,)` (**measured**). Opening `daily/` with
+`xr.open_zarr` took 6.8 s remote and 1.8 s local before the change, and 0.02 s
+locally after it (**measured** on a copy of the local store).
+
+`config.TIME_CHUNKS = (4096,)` makes that 5 chunks for `daily/` and 1 for
+`monthly/` (540 months, previously 540 chunks). The chunk grid is fixed when the
+array is created and appends keep it, so `daily.append_batch` and the first
+monthly rollup set it, and `oisst repair-layout` rewrites it once on stores that
+predate the change. See [operations.md](operations.md#layout-repair).
+
 ## Re-measuring
 
 Measure the live snapshot, never the directory: `du` over `chunks/` (and
