@@ -62,6 +62,14 @@ def _write_daily(repo: icechunk.Repository, ds: xr.Dataset) -> None:
     session.commit("synthetic daily data")
 
 
+def _append_daily(repo: icechunk.Repository, ds: xr.Dataset) -> None:
+    session = repo.writable_session("main")
+    icechunk.xarray.to_icechunk(
+        ds, session, group=config.DAILY_GROUP, append_dim="time"
+    )
+    session.commit("synthetic daily append")
+
+
 def test_preliminary_coordinate_round_trip(repo: icechunk.Repository) -> None:
     _write_daily(repo, _synthetic_daily(2024, 1, preliminary_days={30, 31}))
 
@@ -155,6 +163,41 @@ def test_rollup_writes_time_coordinate_in_few_chunks(
     time = group["time"]
     assert isinstance(time, zarr.Array)
     assert time.chunks == config.TIME_CHUNKS
+
+
+def test_rollup_writes_monthly_attrs_and_appends_keep_them(
+    repo: icechunk.Repository,
+) -> None:
+    daily_ds = _synthetic_daily(2024, 1, preliminary_days=set())
+    daily_ds.attrs = {"references": "https://example.org/ref", "title": "daily"}
+    daily_ds["ice"].attrs = {"units": "%", "valid_min": 0, "valid_max": 100}
+    _write_daily(repo, daily_ds)
+    rollup.rollup_month(repo, date(2024, 1, 1))
+
+    def monthly_group() -> zarr.Group:
+        session = repo.readonly_session("main")
+        return zarr.open_group(session.store, path=config.MONTHLY_GROUP, mode="r")
+
+    group = monthly_group()
+    assert group.attrs["Conventions"] == "CF-1.6, ACDD-1.3"
+    assert group.attrs["references"] == "https://example.org/ref"
+    ice_max = dict(group["ice_max"].attrs)
+    assert ice_max["long_name"] == "Monthly maximum of daily sea ice concentration"
+    assert ice_max["units"] == "1"
+    assert "valid_max" not in ice_max
+    assert ice_max["scale_factor"] == 0.001  # encoding attrs still present
+    assert ice_max["_FillValue"] == config.MONTHLY_FILL_VALUE
+
+    # A subsequent append (February) leaves the variable attrs as written. The
+    # group attrs are rewritten by xarray's append from the new month's ds,
+    # which is consistent as long as the daily group attrs are.
+    feb = _synthetic_daily(2024, 2, preliminary_days=set())
+    feb.attrs = daily_ds.attrs
+    _append_daily(repo, feb)
+    rollup.rollup_month(repo, date(2024, 2, 1))
+    group = monthly_group()
+    assert dict(group["ice_max"].attrs) == ice_max
+    assert dict(group.attrs)["references"] == "https://example.org/ref"
 
 
 def test_rollup_catch_up_is_idempotent(repo: icechunk.Repository) -> None:

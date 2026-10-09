@@ -56,6 +56,65 @@ def test_monthly_statistics_preserves_float32() -> None:
     assert all(out[v].dtype == np.float32 for v in out.data_vars)
 
 
+def _daily_style_month() -> xr.Dataset:
+    ds = _synthetic_month().rename({"sst": "ice"})
+    ds["ice"].attrs = {
+        "long_name": "Daily sea ice concentration",
+        "units": "%",
+        "valid_min": 0,
+        "valid_max": 100,
+    }
+    ds.attrs = {
+        "title": "NOAA Daily OISST v2.1",
+        "references": "https://example.org/ref",
+        "geospatial_lat_min": -90.0,
+        "platform": "Ships, buoys, Argo floats, MetOp-A, MetOp-B",
+        "sensor": "AVHRR",
+        "summary": "daily summary that must not leak",
+        "history": "daily history that must not leak",
+    }
+    return ds
+
+
+def test_monthly_statistics_replaces_inherited_daily_attrs() -> None:
+    out = monthly_statistics(_daily_style_month(), date(2024, 1, 1))
+    assert out["ice_max"].attrs == {
+        "long_name": "Monthly maximum of daily sea ice concentration",
+        "units": "1",
+        "cell_methods": "time: maximum",
+    }
+    assert out["ice_std"].attrs["cell_methods"] == "time: standard_deviation"
+    for var in out.data_vars:
+        assert not {"valid_min", "valid_max"} & set(out[var].attrs)
+
+
+def test_monthly_statistics_sets_group_attrs() -> None:
+    out = monthly_statistics(_daily_style_month(), date(2024, 1, 1))
+    assert out.attrs == config.monthly_group_attrs(_daily_style_month().attrs)
+    assert out.attrs["Conventions"] == "CF-1.6, ACDD-1.3"
+    assert out.attrs["references"] == "https://example.org/ref"
+    assert out.attrs["sensor"] == "AVHRR"
+    assert "must not leak" not in out.attrs["history"]
+
+
+def test_monthly_variable_attrs_cover_all_statistics() -> None:
+    for name in config.monthly_variable_names():
+        attrs = config.monthly_variable_attrs(name)
+        assert attrs["long_name"].startswith("Monthly ")
+        assert attrs["units"] == ("1" if name.startswith("ice") else "Celsius")
+        assert "valid_min" not in attrs
+        assert "valid_max" not in attrs
+        # encoding-owned attrs must not appear here
+        assert "scale_factor" not in attrs
+        assert "_FillValue" not in attrs
+
+
+def test_monthly_group_attrs_without_daily_attrs() -> None:
+    attrs = config.monthly_group_attrs({})
+    assert "references" not in attrs
+    assert attrs["Conventions"] == "CF-1.6, ACDD-1.3"
+
+
 # --- months_ready -------------------------------------------------------------
 
 
