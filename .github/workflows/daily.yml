@@ -80,6 +80,12 @@ jobs:
         with:
           environments: default
 
+      # Idempotent: a metadata-only no-op once the store is correct. Runs first
+      # so a needed rewrite commits before this run's appends. See
+      # docs/chunking.md.
+      - name: Repair layout (no-op when correct)
+        run: pixi run oisst repair-layout
+
       - name: Ingest recent days (append + prelim→final swaps)
         if: inputs.start == ''
         run: pixi run oisst ingest-recent --scan-months 2
