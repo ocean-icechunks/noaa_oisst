@@ -26,6 +26,11 @@ START_DATE = date(1981, 9, 1)
 # The data variables in daily files.
 VARIABLES = ("sst", "anom", "err", "ice")
 
+# Chunk shape of the `time` coordinate in both `daily/` and `monthly/`. One
+# chunk per timestep makes opening the group read thousands of tiny chunks
+# (~1.3 s per 16k, even when inlined in the manifest); 4096 keeps it to a few.
+TIME_CHUNKS = (4096,)
+
 # --- daily/ ------------------------------------------------------------------
 
 # Chunk shape of the real (non-virtual) `preliminary` bool coordinate.
@@ -64,11 +69,12 @@ def monthly_compressors() -> list[BloscCodec]:
 def monthly_encoding(names: list[str] | None = None) -> dict[str, dict[str, Any]]:
     """Zarr encoding for the monthly statistics variables.
 
-    Only applied on the group's first write; appends inherit it from the store.
+    Also covers the ``time`` coordinate. Only applied on the group's first
+    write; appends inherit it from the store.
     """
     if names is None:
         names = monthly_variable_names()
-    return {
+    encoding: dict[str, dict[str, Any]] = {
         name: {
             "dtype": "int16",
             "scale_factor": scale_factor_for(name),
@@ -78,3 +84,5 @@ def monthly_encoding(names: list[str] | None = None) -> dict[str, dict[str, Any]
         }
         for name in names
     }
+    encoding["time"] = {"chunks": TIME_CHUNKS}
+    return encoding

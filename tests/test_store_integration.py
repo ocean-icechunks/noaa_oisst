@@ -144,6 +144,19 @@ def test_rollup_writes_correct_values_chunks_and_encoding(
     assert sst_mean.dtype == np.int16
 
 
+def test_rollup_writes_time_coordinate_in_few_chunks(
+    repo: icechunk.Repository,
+) -> None:
+    _write_daily(repo, _synthetic_daily(2024, 1, preliminary_days=set()))
+    rollup.rollup_month(repo, date(2024, 1, 1))
+
+    session = repo.readonly_session("main")
+    group = zarr.open_group(session.store, path=config.MONTHLY_GROUP, mode="r")
+    time = group["time"]
+    assert isinstance(time, zarr.Array)
+    assert time.chunks == config.TIME_CHUNKS
+
+
 def test_rollup_catch_up_is_idempotent(repo: icechunk.Repository) -> None:
     _write_daily(repo, _synthetic_daily(2024, 1, preliminary_days=set()))
     session = repo.readonly_session("main")

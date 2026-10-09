@@ -176,6 +176,8 @@ def append_batch(
         return None
     vds = build_batch(days, max_workers=max_workers)
     vds["preliminary"].encoding["chunks"] = config.PRELIMINARY_CHUNKS
+    # Only takes effect on creation; appends keep the existing chunk grid.
+    vds["time"].encoding["chunks"] = config.TIME_CHUNKS
 
     session = repo.writable_session("main")
     exists = store.group_times(session, config.DAILY_GROUP) is not None

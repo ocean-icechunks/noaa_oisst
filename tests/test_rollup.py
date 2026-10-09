@@ -109,9 +109,16 @@ def test_scale_factors_per_variable() -> None:
 
 def test_monthly_encoding_shape_and_dtype() -> None:
     enc = config.monthly_encoding()
-    assert set(enc) == set(config.monthly_variable_names())
-    for name, spec in enc.items():
+    assert set(enc) == {*config.monthly_variable_names(), "time"}
+    for name in config.monthly_variable_names():
+        spec = enc[name]
         assert spec["chunks"] == (24, 1, 90, 90)
         assert spec["dtype"] == "int16"
         assert spec["_FillValue"] == -32768
         assert spec["scale_factor"] == config.scale_factor_for(name)
+
+
+def test_monthly_encoding_chunks_the_time_coordinate() -> None:
+    enc = config.monthly_encoding(["sst_mean"])
+    assert enc["time"] == {"chunks": config.TIME_CHUNKS}
+    assert config.TIME_CHUNKS == (4096,)
